@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .header {
+      background-color: #6366f1;
+      color: white;
+      padding: 20px;
+      border-radius: 5px 5px 0 0;
+    }
+    .content {
+      background-color: #f9fafb;
+      padding: 20px;
+      border: 1px solid #e5e7eb;
+      border-top: none;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background-color: #6366f1;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      margin-top: 20px;
+    }
+    .details {
+      background-color: white;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 15px 0;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .detail-row:last-child {
+      border-bottom: none;
+    }
+    .footer {
+      text-align: center;
+      color: #6b7280;
+      font-size: 12px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Quote Sent to Client</h1>
+  </div>
+  <div class="content">
+    <p>Hello {{recipientName}},</p>
+    
+    <p>A quote has been sent to the client:</p>
+    
+    <div class="details">
+      <div class="detail-row">
+        <strong>RFQ Title:</strong>
+        <span>{{rfqTitle}}</span>
+      </div>
+      <div class="detail-row">
+        <strong>Client:</strong>
+        <span>{{clientName}}</span>
+      </div>
+      <div class="detail-row">
+        <strong>Sent By:</strong>
+        <span>{{sentBy}}</span>
+      </div>
+      <div class="detail-row">
+        <strong>Sent At:</strong>
+        <span>{{sentAt}}</span>
+      </div>
+    </div>
+    
+    <p>The quote is now in the client's hands. You can track its status in the system.</p>
+    
+    <a href="{{viewUrl}}" class="button">View Pricing Run</a>
+    
+    <p style="margin-top: 20px; font-size: 14px; color: #6b7280;">
+      If you cannot click the button, copy and paste this URL into your browser:<br>
+      <a href="{{viewUrl}}">{{viewUrl}}</a>
+    </p>
+  </div>
+  
+  <div class="footer">
+    <p>This is an automated email from NSC Pricer. Please do not reply to this email.</p>
+  </div>
+</body>
+</html>
+

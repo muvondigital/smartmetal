@@ -4,12 +4,42 @@
   "description": "NSC Pricer Backend API",
   "scripts": {
     "test-connection": "node test-supabase-connection.js",
-    "dev": "node src/index.js"
+    "dev": "node src/index.js",
+    "seed:pipes": "node scripts/seed_pipes.js",
+    "seed:fittings": "node scripts/seed_fittings.js",
+    "seed:flanges": "node scripts/seed_flanges.js",
+    "seed:fasteners": "node scripts/seed_fasteners.js",
+    "seed:kgsb-gratings": "node scripts/seed_kgsb_gratings.js",
+    "migrate:v2": "node scripts/runMigrationV2.js",
+    "test:migration": "node scripts/testMigration.js",
+    "test": "jest --coverage",
+    "test:watch": "jest --watch"
   },
   "dependencies": {
+    "@azure/ai-form-recognizer": "^5.1.0",
+    "@azure/core-auth": "^1.10.1",
+    "@azure/openai": "^2.0.0",
+    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.18.2",
+    "express-validator": "^7.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.0.2",
     "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "supertest": "^6.3.3"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "coveragePathIgnorePatterns": [
+      "/node_modules/",
+      "/scripts/"
+    ],
+    "testMatch": [
+      "**/__tests__/**/*.test.js",
+      "**/?(*.)+(spec|test).js"
+    ]
   }
 }
-
