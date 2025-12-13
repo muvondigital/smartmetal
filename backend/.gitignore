@@ -7,9 +7,21 @@
 node_modules/
 
 # Google Cloud credentials (if any remain)
-*.json
+*-credentials.json
+*-service-account.json
+credentials/*.json
+.gcloud/*.json
+gcp-*.json
+
+# But DO track these important JSON files:
 !package.json
 !package-lock.json
+!tsconfig.json
+!jsconfig.json
+!.eslintrc.json
+!src/**/*.json
+!scripts/**/*.json
+!config/**/*.json
 
 # Logs
 logs/
