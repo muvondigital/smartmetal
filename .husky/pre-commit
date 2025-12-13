@@ -1,0 +1,6 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+# Run smoke tests before allowing commit
+echo "🔥 Running smoke tests before commit..."
+cd backend && npm run test:smoke
