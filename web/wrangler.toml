@@ -1,0 +1,10 @@
+name = "nsc-pricer-web"
+compatibility_date = "2024-01-01"
+pages_build_output_dir = "dist"
+
+[env.production]
+name = "nsc-pricer-web"
+
+[env.preview]
+name = "nsc-pricer-web-preview"
+

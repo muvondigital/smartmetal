@@ -1,0 +1,17 @@
+{
+  "name": "nsc-pricer",
+  "version": "1.0.0",
+  "description": "SmartMetal Core Platform - AI-Powered CPQ Platform",
+  "scripts": {
+    "install:all": "npm install --prefix backend && npm install --prefix web",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd web && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\"",
+    "start": "npm run dev",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2",
+    "dotenv": "^17.2.3"
+  }
+}
