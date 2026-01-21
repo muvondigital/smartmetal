@@ -11,10 +11,18 @@ coverage/
 
 # Env
 .env
+.env.*
+*.env
+*.env.*
 .env.local
 .env.development
 .env.production
 .env.test
+.env.azure.backup
+.env.gcp
+.env.gcp.example
+.env.di-fallback.example
+.env.monitoring.example
 helpful-aurora-482800-v8-*.json
 gcp-credentials.json
 backend/gcp-credentials.json
