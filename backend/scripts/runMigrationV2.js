@@ -7,7 +7,7 @@
 
 require('dotenv').config();
 const { enhancePricerV2 } = require('../src/db/enhancePricerV2');
-const { seedPricerV2 } = require('../src/db/seedPricerV2');
+const { seedPricerV2 } = require('../src/db/seeds/seedPricerV2');
 
 async function runMigration() {
   console.log('');

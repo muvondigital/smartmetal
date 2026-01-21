@@ -1,0 +1,10 @@
+category,material_code,spec_standard,grade,material_type,origin_type,size_description,base_cost,currency,notes,beam_type,beam_depth_mm,beam_weight_per_m_kg,od_mm,id_mm,wall_thickness_mm,plate_thickness_mm,european_standard,european_grade,european_designation
+BEAM,W36X194,ASTM A992,GR50,Carbon Steel,NON_CHINA,W36X194,1500,USD,Structural beam,W,914.4,288.7,,,,,EN10210,S355,
+BEAM,HEA-1000-300-272,EN10225,S355,MLO,Carbon Steel,NON_CHINA,HEA 1000 x 300 x 272,1800,USD,HEA beam,HEA,1000,,300,272,,,,EN10225,S355,MLO
+TUBULAR,TUB-30000-25,EN10210,S355,K2H,Carbon Steel,NON_CHINA,30000x25,2000,USD,Large tubular,,,,30000,,25,,,EN10210,S355,K2H
+TUBULAR,TUB-1828-44.5,EN10210,S355,K2H,Carbon Steel,NON_CHINA,1828.80x44.5,1800,USD,Medium tubular,,,,1828.8,,44.5,,,EN10210,S355,K2H
+TUBULAR,TUB-457-39.61,EN10210,S355,K2H,Carbon Steel,NON_CHINA,457 x 39.61,1500,USD,Small tubular,,,,457,,39.61,,,EN10210,S355,K2H
+PLATE,PL-60,EN10025,S355,,Carbon Steel,NON_CHINA,PL60,800,USD,Plate 60mm thick,,,,,,,60,EN10025,S355,
+PLATE,PL-50,EN10025,S355,,Carbon Steel,NON_CHINA,PL50,750,USD,Plate 50mm thick,,,,,,,50,EN10025,S355,
+PLATE,PL-40,EN10025,S355,,Carbon Steel,NON_CHINA,PL40,700,USD,Plate 40mm thick,,,,,,,40,EN10025,S355,
+

@@ -4,16 +4,27 @@ const {
   getDashboardMetrics,
   getWinLossAnalysis,
   getMarginAnalysis,
-  getAgreementUtilization,
 } = require('../services/analyticsService');
-const { authenticate, authorize, ROLES } = require('../middleware/auth');
+const { authenticate, optionalAuth, authorize, ROLES } = require('../middleware/auth');
+const { tenantMiddleware } = require('../middleware/tenant');
 const { asyncHandler, ValidationError } = require('../middleware/errorHandler');
 const { validations, handleValidationErrors, query } = require('../middleware/validation');
+const { log } = require('../utils/logger');
 
 /**
  * Analytics Routes
  * Provides endpoints for business intelligence and metrics
+ * All routes are tenant-scoped
  */
+
+// Apply auth (optional) before tenant resolution so JWT tenant is available
+router.use(optionalAuth);
+router.use(tenantMiddleware);
+// DISABLED: too verbose for debugging, wastes tokens
+// router.use((req, _res, next) => {
+//   log.info('analytics route hit', { tenantId: req.tenantId, path: req.originalUrl });
+//   next();
+// });
 
 /**
  * GET /api/analytics/dashboard
@@ -23,18 +34,29 @@ const { validations, handleValidationErrors, query } = require('../middleware/va
  */
 router.get(
   '/analytics/dashboard',
-  authenticate,
   validations.dateRange,
   handleValidationErrors,
   asyncHandler(async (req, res) => {
     const { start_date, end_date } = req.query;
 
-    const metrics = await getDashboardMetrics({ start_date, end_date });
+    const metrics = await getDashboardMetrics(req.tenantId, { start_date, end_date });
 
-    res.json({
+    // Provide both nested and flattened formats for compatibility
+    const response = {
       success: true,
-      data: metrics,
-    });
+      data: {
+        ...metrics,
+        // Flattened format for backward compatibility
+        total_quotes: metrics.quotes?.total_quotes || 0,
+        pending_quotes: metrics.quotes?.pending_quotes || 0,
+        approved_quotes: metrics.quotes?.approved_quotes || 0,
+        rejected_quotes: metrics.quotes?.rejected_quotes || 0,
+        total_value: metrics.revenue?.total_value || 0,
+        data_mode: metrics.data_mode || 'demo',
+      },
+    };
+
+    res.json(response);
   })
 );
 
@@ -56,7 +78,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { start_date, end_date, client_id, group_by } = req.query;
 
-    const analysis = await getWinLossAnalysis({
+    const analysis = await getWinLossAnalysis(req.tenantId, {
       start_date,
       end_date,
       client_id,
@@ -89,7 +111,7 @@ router.get(
   asyncHandler(async (req, res) => {
     const { start_date, end_date, client_id, material_id, category } = req.query;
 
-    const analysis = await getMarginAnalysis({
+    const analysis = await getMarginAnalysis(req.tenantId, {
       start_date,
       end_date,
       client_id,
@@ -105,46 +127,16 @@ router.get(
 );
 
 /**
- * GET /api/analytics/agreement-utilization
- * Get price agreement utilization metrics
- * Query params: start_date, end_date, client_id
- * @access  Private - Authenticated users
- */
-router.get(
-  '/analytics/agreement-utilization',
-  authenticate,
-  [
-    ...validations.dateRange,
-    query('client_id').optional().isUUID().withMessage('client_id must be a valid UUID'),
-  ],
-  handleValidationErrors,
-  asyncHandler(async (req, res) => {
-    const { start_date, end_date, client_id } = req.query;
-
-    const utilization = await getAgreementUtilization({
-      start_date,
-      end_date,
-      client_id,
-    });
-
-    res.json({
-      success: true,
-      data: utilization,
-    });
-  })
-);
-
-/**
  * GET /api/analytics/export
  * Export analytics data to CSV
- * Query params: report_type (dashboard|win-loss|margins|agreement-utilization), ...other filters
+ * Query params: report_type (dashboard|win-loss|margins), ...other filters
  * @access  Private - Authenticated users
  */
 router.get(
   '/analytics/export',
   authenticate,
   [
-    query('report_type').isIn(['dashboard', 'win-loss', 'margins', 'agreement-utilization']).withMessage('report_type must be one of: dashboard, win-loss, margins, agreement-utilization'),
+    query('report_type').isIn(['dashboard', 'win-loss', 'margins']).withMessage('report_type must be one of: dashboard, win-loss, margins'),
     ...validations.dateRange,
     query('client_id').optional().isUUID().withMessage('client_id must be a valid UUID'),
     query('group_by').optional().isIn(['month', 'quarter']).withMessage('group_by must be "month" or "quarter"'),
@@ -158,20 +150,16 @@ router.get(
 
     switch (report_type) {
       case 'dashboard':
-        data = await getDashboardMetrics(filters);
+        data = await getDashboardMetrics(req.tenantId, filters);
         filename = `dashboard_${new Date().toISOString().split('T')[0]}.csv`;
         break;
       case 'win-loss':
-        data = await getWinLossAnalysis(filters);
+        data = await getWinLossAnalysis(req.tenantId, filters);
         filename = `win_loss_${new Date().toISOString().split('T')[0]}.csv`;
         break;
       case 'margins':
-        data = await getMarginAnalysis(filters);
+        data = await getMarginAnalysis(req.tenantId, filters);
         filename = `margins_${new Date().toISOString().split('T')[0]}.csv`;
-        break;
-      case 'agreement-utilization':
-        data = await getAgreementUtilization(filters);
-        filename = `agreement_utilization_${new Date().toISOString().split('T')[0]}.csv`;
         break;
       default:
         throw new ValidationError(`Invalid report_type: ${report_type}`);

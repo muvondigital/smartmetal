@@ -1,0 +1,3 @@
+standard,nps_inch,dn_mm,rating_class,type,facing,bore_inch,od_inch,thickness_inch,hub_diameter_inch,hub_length_inch,bolt_circle_inch,bolt_hole_diameter_inch,number_of_bolts,bolt_size_inch,weight_kg,flange_category,b165_table,b165_page,source_file,is_active
+ASME B16.5-2022,2,50,150,WN,RF,2.067,6,0.75,4.5,1.5,4.75,0.625,4,0.625,2.5,CS,Table 7,50,ASME B16.5.pdf,True
+

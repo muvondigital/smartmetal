@@ -9,9 +9,19 @@ const {
   getApprovalHistory,
   getMyApprovalQueue,
 } = require('../services/approvalService');
-const { authenticate, authorize, ROLES } = require('../middleware/auth');
-const { asyncHandler } = require('../middleware/errorHandler');
+const { authenticate, authorize, optionalAuth, ROLES } = require('../middleware/auth');
+const { asyncHandler, ValidationError } = require('../middleware/errorHandler');
 const { validations, handleValidationErrors, body, query, param } = require('../middleware/validation');
+const { tenantMiddleware } = require('../middleware/tenant');
+const { log } = require('../utils/logger');
+
+// Apply optional auth first so tenant resolution can use JWT tenant
+router.use(optionalAuth);
+router.use(tenantMiddleware);
+router.use((req, _res, next) => {
+  log.info('approval route hit', { tenantId: req.tenantId, path: req.originalUrl });
+  next();
+});
 
 /**
  * @route   POST /api/approvals/submit/:pricingRunId
@@ -35,7 +45,19 @@ router.post(
       notes: req.body.notes,
     };
 
-    const result = await submitForApproval(req.params.pricingRunId, submitter);
+    // Ensure name is provided (required for approval_history.actor_name NOT NULL constraint)
+    if (!submitter.name || submitter.name.trim() === '') {
+      // Fallback to email if name is missing
+      if (submitter.email) {
+        submitter.name = submitter.email.split('@')[0]; // Use email username as fallback
+      } else {
+        throw new ValidationError('submitted_by or user name is required');
+      }
+    }
+
+    const result = await submitForApproval(req.params.pricingRunId, submitter, req.tenantId, {
+      correlationId: req.correlationId,
+    }, req.tenant);
     res.json({
       success: true,
       data: result,
@@ -63,10 +85,11 @@ router.post(
       name: req.user?.name || req.body.approver_name || req.body.approver_id,
       email: req.user?.email || req.body.approver_email,
       id: req.user?.id || req.body.approver_id,
+      role: req.user?.role, // CRITICAL: Pass role for manager/admin bypass
       notes: req.body.notes,
     };
 
-    const result = await approvePricingRun(req.params.pricingRunId, approver);
+    const result = await approvePricingRun(req.params.pricingRunId, approver, req.tenantId, req.tenant);
     res.json({
       success: true,
       data: result,
@@ -98,7 +121,7 @@ router.post(
       rejection_reason: req.body.rejection_reason,
     };
 
-    const result = await rejectPricingRun(req.params.pricingRunId, rejector);
+    const result = await rejectPricingRun(req.params.pricingRunId, rejector, req.tenantId, req.tenant);
     res.json({
       success: true,
       data: result,
@@ -122,7 +145,36 @@ router.get(
   ],
   handleValidationErrors,
   asyncHandler(async (req, res) => {
+    // CRITICAL FIX: Validate tenantId before passing to service
+    if (!req.tenantId || typeof req.tenantId !== 'string' || req.tenantId.trim() === '' || req.tenantId === '""') {
+      console.error('[APPROVALS] ERROR: req.tenantId is missing or invalid in /pending!', {
+        tenantId: req.tenantId,
+        type: typeof req.tenantId,
+        isEmpty: req.tenantId === '',
+        isQuotedEmpty: req.tenantId === '""'
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'tenantId is required and must be a valid UUID string'
+      });
+    }
+
+    // Additional UUID format validation
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const validatedTenantId = req.tenantId.trim();
+    if (!uuidRegex.test(validatedTenantId)) {
+      console.error('[APPROVALS] ERROR: req.tenantId is not a valid UUID!', { 
+        tenantId: req.tenantId,
+        trimmed: validatedTenantId
+      });
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid tenant ID format'
+      });
+    }
+
     const options = {
+      tenantId: validatedTenantId,
       sort: req.query.sort || 'oldest',
       limit: req.query.limit ? parseInt(req.query.limit) : 50,
     };
@@ -131,6 +183,7 @@ router.get(
     res.json({
       success: true,
       data: result,
+      pending_approvals: result, // For frontend compatibility
     });
   })
 );
@@ -144,14 +197,32 @@ router.get(
   '/history/:pricingRunId',
   authenticate,
   [
-    param('pricingRunId').isUUID().withMessage('pricingRunId must be a valid UUID'),
+    param('pricingRunId')
+      .notEmpty()
+      .withMessage('pricingRunId cannot be empty')
+      .isUUID()
+      .withMessage('pricingRunId must be a valid UUID'),
   ],
   handleValidationErrors,
   asyncHandler(async (req, res) => {
-    const result = await getApprovalHistory(req.params.pricingRunId);
+    const { pricingRunId } = req.params;
+    const { tenantId } = req;
+
+    // Additional validation: explicit check for empty string
+    if (!pricingRunId || pricingRunId.trim() === '') {
+      throw new ValidationError('pricingRunId is required and cannot be empty');
+    }
+
+    // Validate tenantId is required
+    if (!tenantId) {
+      throw new ValidationError('Tenant ID is required. tenantId must be provided via tenant middleware.');
+    }
+
+    const result = await getApprovalHistory(pricingRunId, tenantId);
     res.json({
       success: true,
       data: result,
+      history: result, // For frontend compatibility
     });
   })
 );
@@ -179,6 +250,7 @@ router.get(
     }
 
     const options = {
+      tenantId: req.tenantId,
       sort: req.query.sort || 'oldest',
       limit: req.query.limit ? parseInt(req.query.limit) : 50,
     };
@@ -187,6 +259,7 @@ router.get(
     res.json({
       success: true,
       data: result,
+      pending_approvals: result, // For frontend compatibility
     });
   })
 );
@@ -213,7 +286,26 @@ router.post(
       notes: req.body.notes,
     };
 
-    const result = await markQuoteAsSent(req.params.pricingRunId, sender);
+    const result = await markQuoteAsSent(req.params.pricingRunId, sender, req.tenantId, req.tenant);
+    res.json({
+      success: true,
+      data: result,
+    });
+  })
+);
+
+/**
+ * @route   POST /api/approvals/enforce-sla
+ * @desc    Enforce SLA deadlines for pending approvals (should be called periodically)
+ * @access  Private - Admin only
+ */
+router.post(
+  '/enforce-sla',
+  authenticate,
+  authorize(ROLES.ADMIN),
+  asyncHandler(async (req, res) => {
+    const { enforceSLA } = require('../services/approvalService');
+    const result = await enforceSLA(req.tenantId);
     res.json({
       success: true,
       data: result,

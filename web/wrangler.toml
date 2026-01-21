@@ -1,10 +1,10 @@
-name = "nsc-pricer-web"
+name = "smartmetal-cpq-web"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "dist"
 
 [env.production]
-name = "nsc-pricer-web"
+name = "smartmetal-cpq-web"
 
 [env.preview]
-name = "nsc-pricer-web-preview"
+name = "smartmetal-cpq-web-preview"
 

@@ -1,12 +1,14 @@
 {
-  "name": "nsc-pricer",
+  "name": "smartmetal-cpq",
   "version": "1.0.0",
-  "description": "SmartMetal Core Platform - AI-Powered CPQ Platform",
+  "description": "SmartMetal CPQ - AI-Powered Configure, Price, Quote Platform by Muvon Digital (an innovation arm of Muvon Energy)",
   "scripts": {
-    "install:all": "npm install --prefix backend && npm install --prefix web",
+    "install:all": "npm install --prefix backend && npm install --prefix web && npm install --prefix admin",
     "dev:backend": "cd backend && npm run dev",
     "dev:frontend": "cd web && npm run dev",
+    "dev:admin": "cd admin && npm run dev",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\"",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:admin\" --names \"BACKEND,FRONTEND,ADMIN\" --prefix-colors \"blue,green,magenta\"",
     "start": "npm run dev",
     "prepare": "husky"
   },

@@ -1,9 +1,61 @@
-const materialsService = require('./materialsService');
+/**
+ * Material Matching Service
+ * 
+ * This service matches parsed RFQ line items to materials in the database.
+ * 
+ * FALLBACK MATCHING (for MTO-style RFQs with sparse attributes):
+ * 
+ * When normal matching returns 0 results, the service uses fallback matchers:
+ * 
+ * 1. **Pipe Fallback Matcher** (`fallbackPipeMatcher`):
+ *    - Triggers when item description indicates a pipe but normal matching found nothing
+ *    - Extracts NPS (Nominal Pipe Size) from description using heuristics:
+ *      * Pattern matching: "24\"", "6 IN", "DN150" → converts to NPS
+ *    - Queries `pipes` table directly for matching NPS
+ *    - Finds materials linked via `pipe_id` or searches materials with matching NPS in `notes` JSON
+ *    - Returns low-confidence matches (score 30-50) instead of 0 matches
+ *    - Only used when normal matching returns 0 results
+ * 
+ * 2. **Generic Fallback Matcher** (`fallbackGenericMatcher`):
+ *    - Triggers for non-pipe items (flanges, gaskets, spades, etc.)
+ *    - Infers category from description keywords (FLANGE, GASKET, etc.)
+ *    - Extracts size/NPS if available
+ *    - Searches materials table by category + size
+ *    - Returns low-confidence matches (score 20-40)
+ * 
+ * **When to disable**: Set `minScore` very high (>50) to effectively disable fallback matches,
+ * or modify the fallback functions to return empty arrays.
+ * 
+ * **Why it exists**: MTO PDFs often have sparse technical attributes (e.g., "PIPE 6C1 18 m 24\"")
+ * where schedule, standard, and grade are missing. The fallback ensures we still get reasonable
+ * matches based on size alone, rather than returning 0 matches.
+ */
 
-// Cache for materials (per request, can be improved with proper caching)
-let materialsCache = null;
-let materialsCacheTimestamp = null;
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const materialsService = require('./materialsService');
+const materialParsers = require('./materialParsers');
+const typeIdentifier = require('./materialParsers/typeIdentifier');
+const pipesService = require('./pipesService');
+const { connectDb } = require('../db/supabaseClient');
+
+// Cache for materials
+const cacheService = require('./cacheService');
+const CACHE_TTL_SECONDS = 5 * 60; // 5 minutes in seconds
+
+// Debug logging for PIPE items
+let pipeDebugLoggedCount = 0;
+const MAX_PIPE_DEBUG_LOGS = 3;
+
+function debugLogPipeItem(item) {
+  if (pipeDebugLoggedCount >= MAX_PIPE_DEBUG_LOGS) return;
+  pipeDebugLoggedCount++;
+
+  try {
+    console.log("[PIPE DEBUG] Full PIPE item object:", JSON.stringify(item, null, 2));
+    console.log("[PIPE DEBUG] PIPE item keys:", Object.keys(item));
+  } catch (err) {
+    console.log("[PIPE DEBUG] Error logging PIPE item:", err);
+  }
+}
 
 /**
  * Normalizes a size value for comparison
@@ -83,22 +135,48 @@ function stringMatches(a, b, exact = false) {
 /**
  * Infers product type from description
  * @param {string} description - Item description
- * @returns {string|null} Inferred product type (pipe, flange, fitting, etc.)
+ * @returns {string|null} Inferred product type (pipe, flange, fitting, beam, tubular, plate, etc.)
  */
 function inferProductType(description) {
   if (!description) return null;
   const desc = description.toUpperCase();
   
+  // Structural beams
+  if (/W\s*\d+\s*[Xx]\s*\d+/.test(desc) || /H(EA|EB)\s+\d+/.test(desc) || 
+      (desc.includes('BEAM') && (desc.includes('W') || desc.includes('HEA') || desc.includes('HEB')))) {
+    return 'beam';
+  }
+  
+  // Tubulars (large OD x wall format)
+  const tubularMatch = desc.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/);
+  if (tubularMatch) {
+    const od = parseFloat(tubularMatch[1]);
+    if (od > 500 || desc.includes('TUBULAR') || desc.includes('TUBE')) {
+      return 'tubular';
+    }
+  }
+  
+  // Plates
+  if (/PL\s*\d+/.test(desc) || (desc.includes('PLATE') && /\d+\s*MM/.test(desc))) {
+    return 'plate';
+  }
+  
+  // Pipes
   if (desc.includes('PIPE') || desc.includes('TUBE')) {
     return 'pipe';
   }
+  
+  // Flanges
   if (desc.includes('FLANGE')) {
     return 'flange';
   }
+  
+  // Fittings
   if (desc.includes('ELBOW') || desc.includes('TEE') || desc.includes('REDUCER') || 
       desc.includes('CAP') || desc.includes('COUPLING') || desc.includes('FITTING')) {
     return 'fitting';
   }
+  
   return null;
 }
 
@@ -134,8 +212,57 @@ function isPipeDescription(description) {
 }
 
 /**
+ * Checks if a parsed item is a pipe
+ * @param {Object} item - Parsed line item
+ * @returns {boolean} True if item is a pipe
+ */
+function isPipeItem(item) {
+  const d = (item.description || "").toLowerCase();
+  return d.startsWith("pipe") || d.includes(" pipe ");
+}
+
+/**
+ * Extracts NPS from a parsed item using multiple heuristics
+ * @param {Object} item - Parsed line item
+ * @returns {number|null} NPS in inches, or null if not found
+ */
+function extractNpsFromItem(item) {
+  const candidates = [
+    item.size1,
+    item.size2,
+    item.description
+  ];
+
+  for (const field of candidates) {
+    if (!field || typeof field !== "string") continue;
+    const text = field.toLowerCase();
+
+    // Patterns: 6", 6 IN, NPS 6, 6 inch, 6in
+    const patterns = [
+      /(\d+)\s*"/,
+      /(\d+)\s*in\b/,
+      /nps\s*(\d+)/,
+      /(\d+)\s*inch/,
+      /(\d+)\s*in\./,
+      /\b(\d+)\b/
+    ];
+
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (m && m[1]) {
+        const nps = parseInt(m[1], 10);
+        if (!isNaN(nps)) return nps;
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
  * Extracts pipe-specific attributes from a parsed line item
- * @param {Object} input - Input object with description, size, standard, grade, etc.
+ * Also handles tubular formats (OD x Wall) that might be described as pipes
+ * @param {Object} input - Input object with description, size, schedule, standard, grade, etc.
  * @returns {Object} Extracted pipe attributes
  */
 function extractPipeAttributes(input) {
@@ -146,6 +273,9 @@ function extractPipeAttributes(input) {
     standard: null,
     grade: null,
     form: null,
+    // Tubular attributes (if detected)
+    od_mm: null,
+    wall_thickness_mm: null,
   };
 
   const desc = (input.description || '').toUpperCase();
@@ -153,6 +283,27 @@ function extractPipeAttributes(input) {
   const schedule = input.schedule || '';
   const standard = input.standard || '';
   const grade = input.grade || '';
+
+  // First, check if this is actually a tubular format (OD x Wall)
+  // Examples: 30000x25, 1828.80x44.5, 457 x 39.61
+  const tubularMatch = desc.match(/(\d+(?:\.\d+)?)\s*x\s*(\d+(?:\.\d+)?)/);
+  if (tubularMatch) {
+    const od = parseFloat(tubularMatch[1]);
+    const wall = parseFloat(tubularMatch[2]);
+    
+    // If OD is large (>500mm), this is likely a tubular, not a pipe
+    if (od > 500 || desc.includes('TUBULAR') || desc.includes('TUBE')) {
+      result.od_mm = od;
+      result.wall_thickness_mm = wall;
+      // Convert OD to approximate NPS for matching purposes
+      result.nps_inch = od / 25.4;
+      return result;
+    }
+    
+    // Smaller sizes might still be pipes - store both
+    result.od_mm = od;
+    result.wall_thickness_mm = wall;
+  }
 
   // Extract NPS (Nominal Pipe Size) in inches
   // Pattern: "6\"", "2\"", "1.5\"", "DN150" (convert DN to inches if needed)
@@ -373,8 +524,175 @@ function scorePipeMatch(parsedPipeAttrs, materialPipeAttrs, parsedItem, material
 }
 
 /**
+ * Scores a beam material match
+ * @param {Object} parsedBeamAttrs - Extracted beam attributes from parsed item
+ * @param {Object} material - Material from database
+ * @returns {Object} Score and reasons
+ */
+function scoreBeamMatch(parsedBeamAttrs, material) {
+  let score = 0;
+  const reasons = [];
+
+  // Beam type match (40 points)
+  if (parsedBeamAttrs.beam_type && material.beam_type) {
+    if (parsedBeamAttrs.beam_type.toUpperCase() === material.beam_type.toUpperCase()) {
+      score += 40;
+      reasons.push(`exact_beam_type_${material.beam_type}`);
+    }
+  }
+
+  // Depth match (30 points) - within 1mm tolerance
+  if (parsedBeamAttrs.beam_depth_mm !== null && material.beam_depth_mm !== null) {
+    const depthDiff = Math.abs(parsedBeamAttrs.beam_depth_mm - material.beam_depth_mm);
+    if (depthDiff === 0) {
+      score += 30;
+      reasons.push(`exact_depth_${material.beam_depth_mm}mm`);
+    } else if (depthDiff <= 1) {
+      score += 20;
+      reasons.push(`close_depth_${depthDiff}mm_diff`);
+    }
+  }
+
+  // Weight match (30 points) - within 5% tolerance
+  if (parsedBeamAttrs.beam_weight_per_m_kg !== null && material.beam_weight_per_m_kg !== null) {
+    const weightDiff = Math.abs(parsedBeamAttrs.beam_weight_per_m_kg - material.beam_weight_per_m_kg);
+    const weightPercent = (weightDiff / material.beam_weight_per_m_kg) * 100;
+    if (weightPercent === 0) {
+      score += 30;
+      reasons.push(`exact_weight_${material.beam_weight_per_m_kg}kg_m`);
+    } else if (weightPercent <= 5) {
+      score += 20;
+      reasons.push(`close_weight_${weightPercent.toFixed(1)}%_diff`);
+    }
+  }
+
+  // European standard match (bonus 10 points)
+  if (parsedBeamAttrs.european_standard && material.european_standard) {
+    if (parsedBeamAttrs.european_standard === material.european_standard) {
+      score += 10;
+      reasons.push('european_standard_match');
+    }
+  }
+
+  score = Math.min(score, 100);
+
+  return {
+    score,
+    reasons: reasons.join(', '),
+  };
+}
+
+/**
+ * Scores a tubular material match
+ * @param {Object} parsedTubularAttrs - Extracted tubular attributes from parsed item
+ * @param {Object} material - Material from database
+ * @returns {Object} Score and reasons
+ */
+function scoreTubularMatch(parsedTubularAttrs, material) {
+  let score = 0;
+  const reasons = [];
+
+  // OD match (50 points) - within 1% tolerance
+  if (parsedTubularAttrs.od_mm !== null && material.od_mm !== null) {
+    const odDiff = Math.abs(parsedTubularAttrs.od_mm - material.od_mm);
+    const odPercent = (odDiff / material.od_mm) * 100;
+    if (odPercent === 0) {
+      score += 50;
+      reasons.push(`exact_od_${material.od_mm}mm`);
+    } else if (odPercent <= 1) {
+      score += 40;
+      reasons.push(`close_od_${odPercent.toFixed(2)}%_diff`);
+    } else if (odPercent <= 5) {
+      score += 25;
+      reasons.push(`approximate_od_${odPercent.toFixed(2)}%_diff`);
+    }
+  }
+
+  // Wall thickness match (50 points) - within 0.5mm or 5% tolerance
+  if (parsedTubularAttrs.wall_thickness_mm !== null && material.wall_thickness_mm !== null) {
+    const wallDiff = Math.abs(parsedTubularAttrs.wall_thickness_mm - material.wall_thickness_mm);
+    const wallPercent = (wallDiff / material.wall_thickness_mm) * 100;
+    if (wallDiff === 0) {
+      score += 50;
+      reasons.push(`exact_wall_${material.wall_thickness_mm}mm`);
+    } else if (wallDiff <= 0.5 || wallPercent <= 5) {
+      score += 40;
+      reasons.push(`close_wall_${wallDiff.toFixed(2)}mm_diff`);
+    } else if (wallDiff <= 2 || wallPercent <= 10) {
+      score += 25;
+      reasons.push(`approximate_wall_${wallDiff.toFixed(2)}mm_diff`);
+    }
+  }
+
+  // European standard match (bonus 10 points)
+  if (parsedTubularAttrs.european_standard && material.european_standard) {
+    if (parsedTubularAttrs.european_standard === material.european_standard) {
+      score += 10;
+      reasons.push('european_standard_match');
+    }
+  }
+
+  score = Math.min(score, 100);
+
+  return {
+    score,
+    reasons: reasons.join(', '),
+  };
+}
+
+/**
+ * Scores a plate material match
+ * @param {Object} parsedPlateAttrs - Extracted plate attributes from parsed item
+ * @param {Object} material - Material from database
+ * @returns {Object} Score and reasons
+ */
+function scorePlateMatch(parsedPlateAttrs, material) {
+  let score = 0;
+  const reasons = [];
+
+  // Thickness match (60 points) - within 0.5mm tolerance
+  if (parsedPlateAttrs.plate_thickness_mm !== null && material.plate_thickness_mm !== null) {
+    const thicknessDiff = Math.abs(parsedPlateAttrs.plate_thickness_mm - material.plate_thickness_mm);
+    if (thicknessDiff === 0) {
+      score += 60;
+      reasons.push(`exact_thickness_${material.plate_thickness_mm}mm`);
+    } else if (thicknessDiff <= 0.5) {
+      score += 50;
+      reasons.push(`close_thickness_${thicknessDiff.toFixed(2)}mm_diff`);
+    } else if (thicknessDiff <= 2) {
+      score += 35;
+      reasons.push(`approximate_thickness_${thicknessDiff.toFixed(2)}mm_diff`);
+    }
+  }
+
+  // European standard match (bonus 20 points)
+  if (parsedPlateAttrs.european_standard && material.european_standard) {
+    if (parsedPlateAttrs.european_standard === material.european_standard) {
+      score += 20;
+      reasons.push('european_standard_match');
+    }
+  }
+
+  // Grade match (bonus 20 points)
+  if (parsedPlateAttrs.european_grade && material.european_grade) {
+    if (parsedPlateAttrs.european_grade === material.european_grade) {
+      score += 20;
+      reasons.push('european_grade_match');
+    }
+  }
+
+  score = Math.min(score, 100);
+
+  return {
+    score,
+    reasons: reasons.join(', '),
+  };
+}
+
+/**
  * Scores a material match against a parsed line item
  * Uses pipe-specific scoring when the material is a pipe or the description indicates a pipe
+ * Now also supports beams, tubulars, and plates
  * @param {Object} parsedItem - Parsed line item from AI
  * @param {Object} material - Material from database
  * @returns {Object} Score and reasons
@@ -400,6 +718,52 @@ function scoreMaterialMatch(parsedItem, material) {
 
     // Use pipe-specific scoring
     return scorePipeMatch(parsedPipeAttrs, materialPipeAttrs, parsedItem, material);
+  }
+
+  // Try to identify material type and use specialized scoring
+  const typeInfo = typeIdentifier.identifyMaterialType(parsedItem.description || '');
+  const materialType = typeInfo.type;
+
+  // Beam matching
+  if (materialType === 'BEAM' || materialCategory === 'beam' || material.beam_type) {
+    const parsedBeamAttrs = materialParsers.parseStructuralBeam(parsedItem.description || '');
+    if (parsedBeamAttrs) {
+      // Also extract European standard if present
+      const enStandard = materialParsers.parseEuropeanStandard(parsedItem.description || '');
+      if (enStandard) {
+        parsedBeamAttrs.european_standard = enStandard.european_standard;
+        parsedBeamAttrs.european_grade = enStandard.european_grade;
+      }
+      return scoreBeamMatch(parsedBeamAttrs, material);
+    }
+  }
+
+  // Tubular matching
+  if (materialType === 'TUBULAR' || materialCategory === 'tubular' || material.od_mm) {
+    const parsedTubularAttrs = materialParsers.parseTubular(parsedItem.description || '');
+    if (parsedTubularAttrs) {
+      // Also extract European standard if present
+      const enStandard = materialParsers.parseEuropeanStandard(parsedItem.description || '');
+      if (enStandard) {
+        parsedTubularAttrs.european_standard = enStandard.european_standard;
+        parsedTubularAttrs.european_grade = enStandard.european_grade;
+      }
+      return scoreTubularMatch(parsedTubularAttrs, material);
+    }
+  }
+
+  // Plate matching
+  if (materialType === 'PLATE' || materialCategory === 'plate' || material.plate_thickness_mm) {
+    const parsedPlateAttrs = materialParsers.parsePlate(parsedItem.description || '');
+    if (parsedPlateAttrs) {
+      // Also extract European standard if present
+      const enStandard = materialParsers.parseEuropeanStandard(parsedItem.description || '');
+      if (enStandard) {
+        parsedPlateAttrs.european_standard = enStandard.european_standard;
+        parsedPlateAttrs.european_grade = enStandard.european_grade;
+      }
+      return scorePlateMatch(parsedPlateAttrs, material);
+    }
   }
 
   // Generic scoring for non-pipe materials (existing logic)
@@ -491,24 +855,307 @@ function scoreMaterialMatch(parsedItem, material) {
 
 /**
  * Loads all materials (with caching)
+ * 
+ * Materials are tenant-scoped (migration 058+).
+ * tenant_id is required and NOT NULL.
+ * 
+ * @param {string} tenantId - Tenant UUID (required)
  * @returns {Promise<Array>} Array of materials
  */
-async function loadMaterials() {
-  const now = Date.now();
-  
-  // Use cache if valid
-  if (materialsCache && materialsCacheTimestamp && (now - materialsCacheTimestamp) < CACHE_TTL_MS) {
-    return materialsCache;
+async function loadMaterials(tenantId) {
+  if (!tenantId) {
+    throw new Error('tenantId is required (materials are tenant-scoped)');
   }
 
-  // Load from database
-  const materials = await materialsService.getAllMaterials();
+  // Use cache with tenant-aware key
+  const cacheKey = `materials:${tenantId}`;
+
+  const materials = await cacheService.getOrSet(
+    cacheKey,
+    async () => {
+      // Load from database with tenant filter
+      return await materialsService.getAllMaterials(tenantId);
+    },
+    CACHE_TTL_SECONDS
+  );
   
-  // Update cache
-  materialsCache = materials;
-  materialsCacheTimestamp = now;
-  
-  return materials;
+  return materials || [];
+}
+
+/**
+ * Extracts NPS (Nominal Pipe Size) from sparse descriptions using best-effort heuristics
+ * Tries multiple patterns: "24\"", "24 IN", "DN600", etc.
+ * @param {Object} parsedItem - Parsed line item
+ * @returns {number|null} NPS in inches, or null if not found
+ */
+function extractNpsFromSparseDescription(parsedItem) {
+  const desc = (parsedItem.description || '').toUpperCase();
+  const size = (parsedItem.size || parsedItem.size1 || parsedItem.size2 || '').toString().toUpperCase();
+  const combined = `${desc} ${size}`;
+
+  // Pattern 1: "24\"", "6\"", "2.5\""
+  const inchPattern = /(\d+(?:\.\d+)?)\s*[""]/;
+  const inchMatch = combined.match(inchPattern);
+  if (inchMatch) {
+    const nps = parseFloat(inchMatch[1]);
+    if (nps > 0 && nps <= 100) { // Reasonable range
+      return nps;
+    }
+  }
+
+  // Pattern 2: "24 IN", "6 INCH", "2.5 INCHES"
+  const inchWordPattern = /(\d+(?:\.\d+)?)\s*IN(?:CH|CHES)?/i;
+  const inchWordMatch = combined.match(inchWordPattern);
+  if (inchWordMatch) {
+    const nps = parseFloat(inchWordMatch[1]);
+    if (nps > 0 && nps <= 100) {
+      return nps;
+    }
+  }
+
+  // Pattern 3: DN (metric) - convert to approximate NPS
+  // DN50≈2", DN100≈4", DN150≈6", DN200≈8", DN250≈10", DN300≈12", DN400≈16", DN500≈20", DN600≈24"
+  const dnPattern = /DN\s*(\d+)/i;
+  const dnMatch = combined.match(dnPattern);
+  if (dnMatch) {
+    const dnValue = parseInt(dnMatch[1], 10);
+    const dnToNps = {
+      50: 2, 100: 4, 150: 6, 200: 8, 250: 10, 300: 12,
+      350: 14, 400: 16, 450: 18, 500: 20, 600: 24, 700: 28, 800: 32
+    };
+    if (dnToNps[dnValue]) {
+      return dnToNps[dnValue];
+    }
+    // Approximate: DN / 25 ≈ NPS (rough conversion)
+    const approximateNps = dnValue / 25;
+    if (approximateNps > 0 && approximateNps <= 100) {
+      return Math.round(approximateNps * 2) / 2; // Round to nearest 0.5
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Fallback pipe matcher for sparse attributes
+ * Queries pipes table directly when normal matching fails
+ * @param {Object} item - Parsed line item with sparse attributes
+ * @returns {Promise<Array>} Array of matched candidates
+ */
+async function fallbackPipeMatcher(item) {
+  console.log("[PIPE MATCH] Fallback triggered:", item.description);
+
+  const nps = extractNpsFromItem(item);
+  if (!nps) {
+    console.log("[PIPE MATCH] No NPS extracted.");
+    return [];
+  }
+
+  console.log("[PIPE MATCH] Extracted NPS =", nps);
+
+  const pipeRows = await pipesService.getPipesByNps(nps);
+  if (!pipeRows || pipeRows.length === 0) {
+    console.log("[PIPE MATCH] No pipes found for NPS", nps);
+    return [];
+  }
+
+  console.log("[PIPE MATCH] Found", pipeRows.length, "pipe rows for NPS", nps);
+
+  // Prefer: is_preferred → lowest schedule → first result
+  pipeRows.sort((a, b) => {
+    if (a.is_preferred && !b.is_preferred) return -1;
+    if (!a.is_preferred && b.is_preferred) return 1;
+    const sa = parseInt(a.schedule || "999", 10);
+    const sb = parseInt(b.schedule || "999", 10);
+    return sa - sb;
+  });
+
+  const selected = pipeRows[0];
+  console.log("[PIPE MATCH] Selected pipe_id =", selected.id);
+
+  const candidate = {
+    material_id: selected.material_id || null,
+    pipe_id: selected.id,
+    category: "PIPE",
+    confidence: 0.55,
+    nps_inch: selected.nps_inch,
+    schedule: selected.schedule,
+    standard: selected.standard || null
+  };
+
+  return [candidate];
+}
+
+/**
+ * Generic fallback matcher for non-pipe items (flanges, gaskets, etc.)
+ * Uses category inference and size-based matching
+ * @param {Object} parsedItem - Parsed line item
+ * @param {number} minScore - Minimum score threshold
+ * @returns {Promise<Array>} Array of matched materials with scores
+ */
+async function fallbackGenericMatcher(parsedItem, minScore = 25) {
+  try {
+    const desc = (parsedItem.description || '').toUpperCase();
+    
+    // Infer category from description
+    let inferredCategory = null;
+    if (desc.includes('FLANGE')) {
+      inferredCategory = 'flange';
+    } else if (desc.includes('GASKET')) {
+      inferredCategory = 'gasket';
+    } else if (desc.includes('SPADE') || desc.includes('SPECTACLE BLIND') || desc.includes('RING SPACER')) {
+      inferredCategory = 'flange'; // These are often flange-related
+    } else {
+      // Can't infer category
+      return [];
+    }
+
+    console.log(`[Material Match Fallback] Generic fallback triggered for "${parsedItem.description?.substring(0, 50)}..." - inferred category: ${inferredCategory}`);
+
+    // Try to extract size (NPS) from description
+    const npsInch = extractNpsFromSparseDescription(parsedItem);
+    
+    const db = await connectDb();
+    let query = `
+      SELECT * FROM materials
+      WHERE LOWER(category) = LOWER($1)
+    `;
+    const params = [inferredCategory];
+
+    // If we have a size, try to match it in size_description
+    if (npsInch) {
+      query += ` AND (
+        size_description ILIKE $2 
+        OR size_description ILIKE $3
+        OR material_code ILIKE $4
+      )`;
+      params.push(`%${npsInch}"%`, `%${npsInch} %`, `%${npsInch}%`);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT 10`;
+
+    const result = await db.query(query, params);
+    
+    if (result.rows.length === 0) {
+      console.log(`[Material Match Fallback] No materials found for category ${inferredCategory}`);
+      return [];
+    }
+
+    // Score candidates
+    const candidates = result.rows.map(material => {
+      let score = 20; // Base score for category match
+      
+      // Bonus for size match
+      if (npsInch && material.size_description) {
+        const sizeDesc = material.size_description.toUpperCase();
+        if (sizeDesc.includes(`${npsInch}"`) || sizeDesc.includes(`${npsInch} `)) {
+          score += 10;
+        }
+      }
+
+      // Bonus for description keyword match
+      const materialCode = (material.material_code || '').toUpperCase();
+      if (desc.includes('SPADE') && materialCode.includes('SPADE')) score += 5;
+      if (desc.includes('SPECTACLE') && materialCode.includes('SPECTACLE')) score += 5;
+      if (desc.includes('RING') && materialCode.includes('RING')) score += 5;
+
+      return {
+        material_id: material.id,
+        material_code: material.material_code,
+        score: Math.min(score, 40), // Cap at 40 for generic fallback
+        reason: `Fallback match: ${inferredCategory} (category + size match)`,
+      };
+    });
+
+    const filtered = candidates.filter(c => c.score >= minScore);
+    console.log(`[Material Match Fallback] Found ${filtered.length} fallback candidates for ${inferredCategory}`);
+    return filtered;
+  } catch (error) {
+    console.error('[Material Match Fallback] Error in generic fallback matcher:', error);
+    return [];
+  }
+}
+
+/**
+ * Gets relevant materials from database based on parsed item
+ * @param {Object} parsedItem - Parsed line item from AI
+ * @returns {Promise<Array>} Array of relevant materials
+ */
+/**
+ * Gets relevant materials from database for matching against a parsed line item
+ * 
+ * @param {Object} parsedItem - Parsed line item from AI extraction
+ * @param {string} [tenantId] - Optional tenant UUID. When provided, returns tenant-specific materials plus global materials.
+ * @returns {Promise<Array>} Array of material objects from database
+ */
+async function getRelevantMaterials(parsedItem, tenantId) {
+  const db = await connectDb();
+
+  // Infer category from description
+  const desc = (parsedItem.description || '').toUpperCase();
+  let category = null;
+
+  if (isPipeDescription(desc) || isPipeItem(parsedItem)) {
+    category = 'pipe';
+  } else if (desc.includes('FLANGE') || desc.includes('BLIND') || desc.includes('SPECTACLE') || desc.includes('SPADE')) {
+    category = 'flange';
+  } else if (desc.includes('FITTING') || desc.includes('ELBOW') || desc.includes('TEE') || desc.includes('REDUCER')) {
+    category = 'fitting';
+  } else if (desc.includes('GASKET')) {
+    category = 'gasket';
+  } else if (desc.includes('FASTENER') || desc.includes('BOLT') || desc.includes('NUT')) {
+    category = 'fastener';
+  }
+
+  // Extract size if available
+  const size = parsedItem.size || parsedItem.size1 || parsedItem.size2;
+  const nps = extractNpsFromSparseDescription(parsedItem);
+
+  let query = 'SELECT * FROM materials WHERE 1=1';
+  const params = [];
+  let paramCount = 0;
+
+  // Tenant-aware filtering: if tenantId provided, filter by tenant_id or NULL (global)
+  if (tenantId) {
+    paramCount++;
+    query += ` AND (tenant_id = $${paramCount} OR tenant_id IS NULL)`;
+    params.push(tenantId);
+  }
+
+  // Filter by category (case-insensitive)
+  if (category) {
+    paramCount++;
+    query += ` AND LOWER(category) = LOWER($${paramCount})`;
+    params.push(category);
+  }
+
+  // Filter by size if available
+  if (size || nps) {
+    let sizeToMatch = nps ? `${nps}` : size;
+
+    // Normalize single quote (foot) to double quote (inch)
+    // Azure DI extracts 6' but database has 6"
+    if (sizeToMatch && typeof sizeToMatch === 'string') {
+      sizeToMatch = sizeToMatch.replace(/'/g, '"');
+    }
+
+    paramCount++;
+    query += ` AND (
+      size_description ILIKE $${paramCount}
+      OR material_code ILIKE $${paramCount}
+      OR notes::text ILIKE $${paramCount}
+    )`;
+    params.push(`%${sizeToMatch}%`);
+  }
+
+  // Limit results to prevent loading too many
+  query += ` LIMIT 200`;
+
+  const result = await db.query(query, params);
+
+  console.log(`[Material Match] Database query returned ${result.rows.length} materials (category: ${category || 'any'}, size: ${size || nps || 'any'}, tenantId: ${tenantId || 'none'})`);
+
+  return result.rows;
 }
 
 /**
@@ -517,17 +1164,34 @@ async function loadMaterials() {
  * @param {Object} options - Matching options
  * @param {number} options.maxResults - Maximum number of results to return (default: 3)
  * @param {number} options.minScore - Minimum score threshold (default: 40)
+ * @param {string} [options.tenantId] - Optional tenant UUID for tenant-aware material matching
  * @returns {Promise<Array>} Array of matched materials with scores
  */
 async function matchMaterialsForLineItem(parsedItem, options = {}) {
-  const { maxResults = 3, minScore = 40 } = options;
+  const { maxResults = 3, minScore = 40, tenantId } = options;
 
   try {
-    // Load all materials
-    const materials = await loadMaterials();
+    // Get relevant materials from database (instead of loading all 1695)
+    const materials = await getRelevantMaterials(parsedItem, tenantId);
 
     if (materials.length === 0) {
-      console.warn('[Material Match] No materials found in database');
+      console.log('[Material Match] No relevant materials found in database query, trying fallback...');
+
+      // Jump straight to fallback logic
+      if (isPipeItem(parsedItem)) {
+        const fallback = await fallbackPipeMatcher(parsedItem);
+        if (fallback.length > 0) {
+          console.log(`[Material Match] Fallback pipe matcher returned ${fallback.length} candidates`);
+          return fallback;
+        }
+      } else {
+        const fallbackResults = await fallbackGenericMatcher(parsedItem, Math.max(minScore - 15, 20));
+        if (fallbackResults.length > 0) {
+          console.log(`[Material Match] Fallback generic matcher found ${fallbackResults.length} candidates`);
+          return fallbackResults.slice(0, maxResults);
+        }
+      }
+
       return [];
     }
 
@@ -535,8 +1199,10 @@ async function matchMaterialsForLineItem(parsedItem, options = {}) {
     const scored = materials.map(material => {
       const matchResult = scoreMaterialMatch(parsedItem, material);
       
-      // Generate human-readable reason text for pipes
+      // Generate human-readable reason text
       let reasonText = matchResult.reasons || null;
+      
+      // Pipes
       if (material.category?.toLowerCase() === 'pipe' && matchResult.score >= 40) {
         const pipeAttrs = parsePipeAttributesFromMaterial(material.notes);
         const parts = [];
@@ -548,6 +1214,39 @@ async function matchMaterialsForLineItem(parsedItem, options = {}) {
         
         const pipeDesc = parts.length > 0 ? parts.join(' ') : material.material_code;
         reasonText = `Matched ${pipeDesc} pipe (${matchResult.reasons}) – score ${matchResult.score}`;
+      }
+      // Beams
+      else if ((material.category?.toLowerCase() === 'beam' || material.beam_type) && matchResult.score >= 40) {
+        const parts = [];
+        if (material.beam_type) parts.push(material.beam_type);
+        if (material.beam_depth_mm) parts.push(`${material.beam_depth_mm}mm`);
+        if (material.beam_weight_per_m_kg) parts.push(`${material.beam_weight_per_m_kg}kg/m`);
+        if (material.european_standard) parts.push(material.european_standard);
+        if (material.european_grade) parts.push(material.european_grade);
+        
+        const beamDesc = parts.length > 0 ? parts.join(' ') : material.material_code;
+        reasonText = `Matched ${beamDesc} beam (${matchResult.reasons}) – score ${matchResult.score}`;
+      }
+      // Tubulars
+      else if ((material.category?.toLowerCase() === 'tubular' || material.od_mm) && matchResult.score >= 40) {
+        const parts = [];
+        if (material.od_mm) parts.push(`OD${material.od_mm}mm`);
+        if (material.wall_thickness_mm) parts.push(`WT${material.wall_thickness_mm}mm`);
+        if (material.european_standard) parts.push(material.european_standard);
+        if (material.european_grade) parts.push(material.european_grade);
+        
+        const tubularDesc = parts.length > 0 ? parts.join(' ') : material.material_code;
+        reasonText = `Matched ${tubularDesc} tubular (${matchResult.reasons}) – score ${matchResult.score}`;
+      }
+      // Plates
+      else if ((material.category?.toLowerCase() === 'plate' || material.plate_thickness_mm) && matchResult.score >= 40) {
+        const parts = [];
+        if (material.plate_thickness_mm) parts.push(`PL${material.plate_thickness_mm}`);
+        if (material.european_standard) parts.push(material.european_standard);
+        if (material.european_grade) parts.push(material.european_grade);
+        
+        const plateDesc = parts.length > 0 ? parts.join(' ') : material.material_code;
+        reasonText = `Matched ${plateDesc} plate (${matchResult.reasons}) – score ${matchResult.score}`;
       }
       
       return {
@@ -565,7 +1264,38 @@ async function matchMaterialsForLineItem(parsedItem, options = {}) {
     filtered.sort((a, b) => b.score - a.score);
 
     // Return top results
-    const results = filtered.slice(0, maxResults);
+    let results = filtered.slice(0, maxResults);
+
+    // PIPE FALLBACK MATCHING: If item is a pipe, use dedicated fallback logic
+    if (isPipeItem(parsedItem)) {
+      debugLogPipeItem(parsedItem);
+
+      // Try strict pipe matching first (normal flow)
+      if (results.length > 0) {
+        console.log(`[Material Match] Found ${results.length} strict pipe matches`);
+        return results;
+      }
+
+      // No strict matches - use fallback
+      const fallback = await fallbackPipeMatcher(parsedItem);
+      if (fallback.length > 0) {
+        console.log(`[Material Match] Fallback pipe matcher returned ${fallback.length} candidates`);
+        return fallback;
+      }
+
+      // Last resort: return empty
+      console.log(`[Material Match] No pipe matches found (strict or fallback)`);
+      return [];
+    }
+
+    // NON-PIPE FALLBACK: For non-pipe items, use generic fallback if needed
+    if (results.length === 0) {
+      const fallbackResults = await fallbackGenericMatcher(parsedItem, Math.max(minScore - 15, 20));
+      if (fallbackResults.length > 0) {
+        results = fallbackResults.slice(0, maxResults);
+        console.log(`[Material Match] Fallback generic matcher found ${results.length} candidates for item "${parsedItem.description?.substring(0, 50)}..."`);
+      }
+    }
 
     console.log(`[Material Match] Matched ${results.length} materials for item "${parsedItem.description?.substring(0, 50)}..." (from ${materials.length} total materials)`);
 
@@ -576,8 +1306,111 @@ async function matchMaterialsForLineItem(parsedItem, options = {}) {
   }
 }
 
+/**
+ * Auto-select material if confidence threshold is met
+ * @param {Array} matches - Array of matched materials with scores
+ * @param {number} threshold - Confidence threshold (default: 90)
+ * @returns {Object|null} - Auto-selected material or null
+ */
+function autoSelectMaterial(matches, threshold = 90) {
+  if (!matches || matches.length === 0) {
+    return null;
+  }
+
+  // Get top match
+  const topMatch = matches[0];
+
+  // Check if score meets threshold
+  if (topMatch.score >= threshold) {
+    console.log(`[Material Match] Auto-selected material ${topMatch.material_code} with score ${topMatch.score}`);
+    return {
+      material_id: topMatch.material_id,
+      material_code: topMatch.material_code,
+      confidence: topMatch.score,
+      auto_selected: true,
+      reason: topMatch.reason
+    };
+  }
+
+  // Score doesn't meet threshold
+  console.log(`[Material Match] Top match score ${topMatch.score} below threshold ${threshold} - manual selection required`);
+  return null;
+}
+
+/**
+ * Batch match materials for multiple line items
+ * @param {Array} lineItems - Array of parsed line items
+ * @param {Object} options - Matching options
+ * @returns {Promise<Array>} - Array of match results
+ */
+async function matchMaterialsBatch(lineItems, options = {}) {
+  console.log(`[Material Match] Starting batch matching for ${lineItems.length} items...`);
+  const startTime = Date.now();
+
+  const results = [];
+
+  for (let i = 0; i < lineItems.length; i++) {
+    const item = lineItems[i];
+    console.log(`   Processing item ${i + 1}/${lineItems.length}: "${item.description?.substring(0, 40)}..."`);
+
+    try {
+      const matches = await matchMaterialsForLineItem(item, options);
+      const autoSelected = autoSelectMaterial(matches, options.autoSelectThreshold || 90);
+
+      results.push({
+        line_item: item,
+        matches,
+        auto_selected: autoSelected,
+        needs_review: !autoSelected || matches.length === 0
+      });
+    } catch (error) {
+      console.error(`   Failed to match item ${i + 1}:`, error.message);
+      results.push({
+        line_item: item,
+        matches: [],
+        auto_selected: null,
+        needs_review: true,
+        error: error.message
+      });
+    }
+  }
+
+  const duration = Date.now() - startTime;
+  const autoSelectedCount = results.filter(r => r.auto_selected).length;
+  console.log(`✅ Batch matching completed in ${(duration / 1000).toFixed(1)}s`);
+  console.log(`   Auto-selected: ${autoSelectedCount}/${lineItems.length} (${((autoSelectedCount / lineItems.length) * 100).toFixed(1)}%)`);
+
+  return results;
+}
+
+/**
+ * Track user correction for material match (for feedback loop)
+ * This can be used to improve matching algorithms over time
+ * @param {Object} correction - Correction data
+ * @returns {Promise<void>}
+ */
+async function trackUserCorrection(correction) {
+  // TODO: Store correction in database for future analysis
+  // This would help improve the matching algorithm over time
+  console.log('[Material Match] User correction tracked:', {
+    original_item: correction.original_description,
+    suggested_material: correction.suggested_material_code,
+    actual_material: correction.actual_material_code,
+    score: correction.original_score
+  });
+
+  // For now, just log it. In a full implementation, we would:
+  // 1. Store correction in a `material_match_corrections` table
+  // 2. Periodically analyze corrections to identify patterns
+  // 3. Adjust scoring weights based on correction frequency
+  // 4. Retrain any ML models if applicable
+}
+
 module.exports = {
   matchMaterialsForLineItem,
+  autoSelectMaterial,
+  matchMaterialsBatch,
+  trackUserCorrection,
   // Export normalization functions for testing if needed
   normalizeSize,
   normalizeSchedule,

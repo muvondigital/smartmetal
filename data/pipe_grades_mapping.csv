@@ -1,0 +1,4 @@
+spec,product_form,grade,material_family,min_yield_psi,min_tensile_psi,min_yield_mpa,min_tensile_mpa,c_max,mn_min,mn_max,p_max,s_max,si_min,other_limits,temp_service,equiv_group,notes
+ASTM A106,Seamless Pipe,Gr B,CS,35000,60000,240,415,0.3,0.29,1.06,0.035,0.035,0.1,Cr+Cu+Mo+Ni+V <= 1.00,High temperature,CARBON_PIPE_B,From A106 Grade B datasheet & comparison chart
+ASTM A53,Seamless/Welded Pipe,Gr B,CS,35000,60000,240,415,0.3,0.29,1.2,0.05,0.045,,,Ambient,CARBON_PIPE_B,From carbon grade comparison chart; mechanical properties aligned with A106B
+API 5L,Seamless/Welded Line Pipe,Grade B PSL1,CS,35000,60000,240,415,0.28,,1.2,0.03,0.03,,"For each 0.01% decrease in C, Mn may be increased per spec",Line pipe,CARBON_PIPE_B,From carbon grade comparison chart; PSL1 limits

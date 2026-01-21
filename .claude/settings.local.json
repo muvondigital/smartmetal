@@ -257,7 +257,18 @@
       "Bash(git reset:*)",
       "Bash(git ls-tree:*)",
       "Bash(git branch:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(gcloud builds log:*)",
+      "Bash(gcloud run deploy:*)",
+      "Bash(gcloud builds list:*)",
+      "Bash(gcloud artifacts repositories add-iam-policy-binding:*)",
+      "Bash(gcloud builds describe:*)",
+      "Bash(gcloud logging read:*)",
+      "Bash(gcloud run services describe:*)",
+      "Bash(gcloud secrets list:*)",
+      "Bash(gcloud secrets versions access:*)",
+      "Bash(gcloud beta run services add-iam-policy-binding:*)",
+      "Bash(gcloud run services add-iam-policy-binding:*)"
     ],
     "deny": [],
     "ask": []

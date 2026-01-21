@@ -1,0 +1,125 @@
+/**
+ * Approval Rules Configuration - EXAMPLE WITH PLACEHOLDERS
+ * 
+ * Copy this file to approvalRules.js and fill in NSC-provided values
+ * 
+ * This file shows example values - replace with actual NSC thresholds
+ */
+
+module.exports = {
+  // SLA Configuration (Confirmed NSC Values)
+  sla: {
+    sales: {
+      hours: 24,
+      description: 'Sales approval must be completed within 24 hours'
+    },
+    procurement: {
+      hours: 48,
+      description: 'Procurement approval must be completed within 48 hours'
+    },
+    management: {
+      hours: 48,
+      description: 'Management approval must be completed within 48 hours'
+    },
+    backupApprover: {
+      idleHours: 24,
+      description: 'Backup approver assigned after 24 hours of inactivity'
+    }
+  },
+
+  // Approval Level Thresholds
+  thresholds: {
+    // Level 1: Sales/BD Review
+    // Always required - no threshold needed
+    
+    // Level 2: Procurement Review
+    procurement: {
+      // Quote value threshold (in base currency)
+      quoteValueThreshold: {
+        value: 10000, // EXAMPLE: Replace with NSC value (e.g., 10000 for $10,000)
+        currency: 'USD',
+        description: 'Quote value threshold requiring procurement review'
+      },
+      // Margin threshold
+      marginThreshold: {
+        value: 0.15, // EXAMPLE: Replace with NSC value (e.g., 0.15 for 15%)
+        description: 'Minimum margin threshold requiring procurement review'
+      },
+      // Project type exceptions
+      projectTypeExceptions: ['rush'], // EXAMPLE: Replace with NSC list
+      // Client type exceptions
+      clientTypeExceptions: [], // EXAMPLE: Replace with NSC list
+      // Custom pricing flag
+      requiresCustomPricing: true, // If true, requires procurement review
+      // New material flag
+      requiresNewMaterials: true // If true, requires procurement review
+    },
+    
+    // Level 3: Management Review
+    management: {
+      // Quote value threshold (in base currency)
+      quoteValueThreshold: {
+        value: 50000, // EXAMPLE: Replace with NSC value (e.g., 50000 for $50,000)
+        currency: 'USD',
+        description: 'Quote value threshold requiring management review'
+      },
+      // Margin threshold
+      marginThreshold: {
+        value: 0.15, // EXAMPLE: Replace with NSC value (e.g., 0.15 for 15%)
+        description: 'Minimum margin threshold requiring management review'
+      },
+      // Discount threshold
+      discountThreshold: {
+        value: 0.10, // EXAMPLE: Replace with NSC value (e.g., 0.10 for 10%)
+        description: 'Maximum discount threshold requiring management review'
+      },
+      // Project type exceptions
+      projectTypeExceptions: [], // EXAMPLE: Replace with NSC list
+      // Client type exceptions
+      clientTypeExceptions: [], // EXAMPLE: Replace with NSC list
+      // Rush project with high discount
+      rushProjectHighDiscount: {
+        enabled: true,
+        discountThreshold: 0.10 // EXAMPLE: Replace with NSC value
+      }
+    }
+  },
+
+  // Role Mappings
+  roles: {
+    sales: ['sales_rep'], // Sales/BD roles
+    procurement: ['procurement'], // Procurement roles
+    management: ['manager', 'admin'] // Management roles
+  },
+
+  // Backup Approver Configuration
+  backupApprovers: {
+    sales: {
+      // Backup approver email for sales level
+      email: 'backup.sales@muvondigital.com', // EXAMPLE: Replace with Muvon Digital email
+      name: 'Backup Sales Approver' // EXAMPLE: Replace with NSC name
+    },
+    procurement: {
+      email: 'backup.procurement@muvondigital.com', // EXAMPLE: Replace with Muvon Digital email
+      name: 'Backup Procurement Approver' // EXAMPLE: Replace with NSC name
+    },
+    management: {
+      email: 'backup.management@muvondigital.com', // EXAMPLE: Replace with Muvon Digital email
+      name: 'Backup Management Approver' // EXAMPLE: Replace with NSC name
+    }
+  },
+
+  // Escalation Configuration
+  escalation: {
+    enabled: true,
+    // Escalate to next level after SLA expires
+    escalateAfterSlaExpires: true,
+    // Escalation notification recipients
+    notificationRecipients: [
+      'escalation@muvondigital.com' // EXAMPLE: Replace with Muvon Digital email list
+    ],
+    // Escalation message template
+    messageTemplate: 'Approval SLA expired for {level} level. Quote has been escalated.'
+  }
+};
+

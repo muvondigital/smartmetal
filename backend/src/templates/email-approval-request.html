@@ -89,9 +89,18 @@
         <strong>Item Count:</strong>
         <span>{{itemCount}}</span>
       </div>
+      <div class="detail-row">
+        <strong>Approval Level:</strong>
+        <span>{{approvalLevel}}</span>
+      </div>
+      <div class="detail-row">
+        <strong>SLA Deadline:</strong>
+        <span style="color: #dc2626; font-weight: bold;">{{slaDeadline}}</span>
+      </div>
     </div>
     
     <p>Please review and approve or reject this pricing run.</p>
+    <p style="color: #dc2626; font-weight: bold;">⚠️ SLA Deadline: {{slaDeadline}}</p>
     
     <a href="{{approvalUrl}}" class="button">Review & Approve</a>
     
@@ -102,7 +111,7 @@
   </div>
   
   <div class="footer">
-    <p>This is an automated email from NSC Pricer. Please do not reply to this email.</p>
+    <p>This is an automated email from SmartMetal CPQ, a product from Muvon Digital, an innovation arm of Muvon Energy. Please do not reply to this email.</p>
   </div>
 </body>
 </html>

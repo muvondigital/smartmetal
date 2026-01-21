@@ -1,0 +1,7 @@
+spec,product_form,grade,material_family,min_yield_mpa,min_tensile_mpa,temp_service,equiv_group,notes
+ASTM A105,Flange,A105,CS,,,Ambient,FLANGE_CS_A105,Carbon steel forged flanges for ambient temperature service. Populate mechanical properties when ready.
+ASTM A350,Flange,LF2,LTCS,,,Low temperature,FLANGE_LTCS_A350LF2,Low-temperature carbon steel flanges. Commonly used for LTCS piping; fill in yield/tensile values later.
+ASTM A182,Flange,F304,SS,,,Ambient,FLANGE_SS_F304,"Austenitic stainless steel flanges, type 304. Mechanical properties TBD."
+ASTM A182,Flange,F304L,SS,,,Ambient,FLANGE_SS_F304L,"Low-carbon 304L stainless flanges, improved weldability. Mechanical properties TBD."
+ASTM A182,Flange,F316,SS,,,Ambient,FLANGE_SS_F316,"Austenitic stainless steel flanges, type 316. Mechanical properties TBD."
+ASTM A182,Flange,F316L,SS,,,Ambient,FLANGE_SS_F316L,Low-carbon 316L stainless flanges. Mechanical properties TBD.

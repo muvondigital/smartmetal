@@ -112,8 +112,13 @@ async function enhancePricingRunItemsTable() {
 
   try {
     await db.query(alterTableSQL);
-    console.log('pricing_run_items table enhanced successfully');
+    console.log('✓ pricing_run_items table enhanced successfully');
   } catch (error) {
+    // If error is permissions-related (42501), that's okay - migrations handle this
+    if (error.code === '42501') {
+      console.log('⚠️  Cannot modify pricing_run_items (permissions). This is expected if migrations have run.');
+      return;
+    }
     console.error('Error enhancing pricing_run_items table:', error);
     throw error;
   }

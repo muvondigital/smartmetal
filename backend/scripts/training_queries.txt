@@ -1,0 +1,157 @@
+# Training Image Search Queries for SmartMetal CPQ - Stage 3
+# One query per line. Lines starting with # are comments.
+# Organized by category for better organization
+
+# ============================================
+# PIPES - Carbon Steel
+# ============================================
+seamless carbon steel pipe 2 inch schedule 40 ASTM A106
+seamless carbon steel pipe 4 inch schedule 40 ASTM A106
+seamless carbon steel pipe 6 inch schedule 40 ASTM A106
+seamless carbon steel pipe 8 inch schedule 40 ASTM A106
+seamless carbon steel pipe 10 inch schedule 40 ASTM A106
+seamless carbon steel pipe 12 inch schedule 40 ASTM A106
+
+seamless carbon steel pipe 2 inch schedule 80 ASTM A106
+seamless carbon steel pipe 6 inch schedule 80 ASTM A106
+seamless carbon steel pipe 8 inch schedule 80 ASTM A106
+
+seamless carbon steel pipe 6 inch schedule 160 ASTM A106
+carbon steel pipe beveled ends industrial
+
+API 5L carbon steel pipe seamless
+ASTM A53 carbon steel pipe
+carbon steel pipe markings stamp
+
+# ============================================
+# PIPES - Stainless Steel
+# ============================================
+seamless stainless steel pipe 2 inch schedule 40 304
+seamless stainless steel pipe 4 inch schedule 40 316
+seamless stainless steel pipe 6 inch schedule 40 304L
+seamless stainless steel pipe 8 inch schedule 40 316L
+
+stainless steel 304 pipe industrial
+stainless steel 316 pipe seamless
+ASTM A312 stainless steel pipe
+
+# ============================================
+# PIPES - Low Temperature Carbon Steel
+# ============================================
+ASTM A333 Grade 6 low temperature carbon steel pipe
+LTCS pipe seamless low temperature service
+
+# ============================================
+# FLANGES - Carbon Steel
+# ============================================
+ASME B16.5 carbon steel flange 6 inch 150lb raised face
+ASME B16.5 carbon steel flange 8 inch 150lb raised face
+ASME B16.5 carbon steel flange 10 inch 150lb raised face
+ASME B16.5 carbon steel flange 12 inch 150lb raised face
+
+carbon steel flange 6 inch 300lb raised face
+carbon steel flange 8 inch 300lb raised face
+carbon steel flange 10 inch 300lb raised face
+
+carbon steel flange 6 inch 600lb raised face
+carbon steel weld neck flange 8 inch 150lb
+carbon steel slip on flange 6 inch 150lb
+carbon steel blind flange 8 inch 150lb
+
+# ============================================
+# FLANGES - Stainless Steel
+# ============================================
+stainless steel 304 flange 6 inch 150lb raised face
+stainless steel 316 flange 8 inch 150lb raised face
+stainless steel flange 10 inch 150lb ASME B16.5
+stainless steel weld neck flange 6 inch 300lb
+
+# ============================================
+# FITTINGS - Elbows
+# ============================================
+carbon steel 90 degree elbow 2 inch seamless ASME B16.9
+carbon steel 90 degree elbow 4 inch seamless ASME B16.9
+carbon steel 90 degree elbow 6 inch seamless ASME B16.9
+carbon steel 90 degree elbow 8 inch seamless ASME B16.9
+
+carbon steel 45 degree elbow 4 inch seamless
+carbon steel 45 degree elbow 6 inch seamless
+
+stainless steel 304 elbow 90 degree 4 inch
+stainless steel 316 elbow 90 degree 6 inch
+
+long radius elbow carbon steel 6 inch
+short radius elbow carbon steel 4 inch
+
+# ============================================
+# FITTINGS - Tees
+# ============================================
+carbon steel tee 4 inch seamless ASME B16.9
+carbon steel tee 6 inch seamless ASME B16.9
+carbon steel tee 8 inch seamless reducing
+stainless steel 304 tee 4 inch equal
+stainless steel 316 tee 6 inch reducing
+
+# ============================================
+# FITTINGS - Reducers
+# ============================================
+carbon steel concentric reducer 8x6 inch ASME B16.9
+carbon steel concentric reducer 6x4 inch seamless
+carbon steel eccentric reducer 8x6 inch
+stainless steel reducer 6x4 inch 304
+
+# ============================================
+# FITTINGS - Caps
+# ============================================
+carbon steel pipe cap 4 inch ASME B16.9
+carbon steel pipe cap 6 inch seamless
+carbon steel pipe cap 8 inch butt weld
+stainless steel pipe cap 4 inch 304
+
+# ============================================
+# FITTINGS - Couplings
+# ============================================
+carbon steel coupling 2 inch threaded
+carbon steel coupling 4 inch socket weld
+stainless steel coupling 2 inch threaded 304
+
+# ============================================
+# FASTENERS
+# ============================================
+carbon steel hex bolt ASTM A193 Grade B7
+carbon steel stud bolt ASTM A193 B7 flange
+heavy hex nut ASTM A194 Grade 2H
+carbon steel hex nut ASTM A563
+stud bolt with nuts flange assembly
+
+# ============================================
+# GASKETS (if you sell these)
+# ============================================
+spiral wound gasket 6 inch 150lb
+spiral wound gasket 8 inch 300lb
+RTJ ring gasket 6 inch
+fiber gasket flange sealing
+
+# ============================================
+# REAL-WORLD SCENARIOS
+# ============================================
+industrial pipe warehouse storage
+steel pipe yard outdoor stacked
+pipe fittings construction site
+flange bolted connection pipeline
+welded pipe joint beveled end
+rusty carbon steel pipe aged
+new seamless pipe clean surface
+pipe with markings stamp close up
+industrial piping system installed
+pipe threading machine operation
+
+# ============================================
+# TECHNICAL DETAILS (for OCR training)
+# ============================================
+pipe marking ASTM A106 Grade B close up
+pipe stamp heat number traceability
+flange marking ASME B16.5 class 150
+material test certificate pipe
+pipe end bevel preparation
+flange face raised face surface

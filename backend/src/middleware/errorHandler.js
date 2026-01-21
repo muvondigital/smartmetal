@@ -1,9 +1,19 @@
 /**
  * Centralized Error Handling Middleware
  * Provides structured error responses and logging
+ * 
+ * Standard Error Response Format:
+ * {
+ *   "error": {
+ *     "code": "ERROR_CODE",
+ *     "message": "Human-readable message",
+ *     "details": {} // Optional, only in development
+ *   }
+ * }
  */
 
 const { config } = require('../config/env');
+const { log } = require('../utils/logger');
 
 /**
  * Custom error classes
@@ -51,38 +61,63 @@ class DatabaseError extends AppError {
 }
 
 /**
- * Structured logger
+ * Log error using structured logger
  */
 function logError(error, req = null) {
-  const logData = {
-    timestamp: new Date().toISOString(),
-    error: {
-      name: error.name,
-      message: error.message,
-      code: error.code || 'UNKNOWN_ERROR',
-      stack: config.server.nodeEnv === 'development' ? error.stack : undefined,
-    },
+  const context = {
+    errorCode: error.code || 'UNKNOWN_ERROR',
+    statusCode: error.statusCode,
+    name: error.name,
   };
 
   if (req) {
-    logData.request = {
+    context.request = {
       method: req.method,
       path: req.path,
       query: req.query,
-      body: config.server.nodeEnv === 'development' ? req.body : '[REDACTED]',
       ip: req.ip,
       userAgent: req.get('user-agent'),
     };
+    
+    // Only log body in development
+    if (config.server.nodeEnv === 'development') {
+      context.request.body = req.body;
+    }
   }
 
   if (error.details) {
-    logData.error.details = error.details;
+    context.details = error.details;
   }
 
+  // Use appropriate log level based on status code
   if (error.statusCode >= 500) {
-    console.error('ERROR:', JSON.stringify(logData, null, 2));
+    log.error(`Error: ${error.message}`, error, context);
   } else if (error.statusCode >= 400) {
-    console.warn('WARNING:', JSON.stringify(logData, null, 2));
+    log.warn(`Client error: ${error.message}`, context);
+  } else {
+    log.info(`Error handled: ${error.message}`, context);
+  }
+  
+  // Development-specific logging for RFQ and Price Agreements routes
+  if (config.server.nodeEnv === 'development' && req && req.path) {
+    if (req.path.includes('/rfqs')) {
+      console.error('[RFQ] Error loading RFQs', {
+        path: req.path,
+        method: req.method,
+        statusCode: error.statusCode,
+        error: error.message,
+        stack: error.stack,
+      });
+    }
+    if (req.path.includes('/price-agreements')) {
+      console.error('[AGREEMENTS] Error loading price agreements', {
+        path: req.path,
+        method: req.method,
+        statusCode: error.statusCode,
+        error: error.message,
+        stack: error.stack,
+      });
+    }
   }
 }
 
@@ -98,7 +133,14 @@ function handleDatabaseError(error) {
     return new ValidationError('Referenced resource does not exist');
   }
   if (error.code === '23502') { // Not null violation
-    return new ValidationError('Required field is missing');
+    // Extract column name from error message if available
+    // PostgreSQL error format: "null value in column "column_name" violates not-null constraint"
+    const columnMatch = error.message.match(/column "([^"]+)"/i);
+    const columnName = columnMatch ? columnMatch[1] : 'unknown';
+    return new ValidationError(`Required field is missing: ${columnName}`, { 
+      field: columnName,
+      originalError: error.message 
+    });
   }
   if (error.code === '42P01') { // Undefined table
     return new DatabaseError('Database table not found', { table: error.table });
@@ -126,9 +168,23 @@ function errorHandler(err, req, res, next) {
   if (error.code && error.code.startsWith('23') || error.code === '42P01') {
     error = handleDatabaseError(error);
   } else if (!(error instanceof AppError)) {
-    // Wrap unknown errors
+    // Wrap unknown errors - ensure message is always a string
+    let errorMessage = 'Internal server error';
+    if (error.message) {
+      if (typeof error.message === 'string') {
+        errorMessage = error.message;
+      } else {
+        // If message is an object, try to stringify it safely
+        try {
+          errorMessage = JSON.stringify(error.message);
+        } catch {
+          errorMessage = 'Internal server error';
+        }
+      }
+    }
+    
     error = new AppError(
-      error.message || 'Internal server error',
+      errorMessage,
       error.statusCode || 500,
       'INTERNAL_ERROR',
       config.server.nodeEnv === 'development' ? error.stack : null
@@ -138,23 +194,36 @@ function errorHandler(err, req, res, next) {
   // Log the error
   logError(error, req);
 
-  // Send error response
+  // Send standardized error response - ensure message is always a string
+  let errorMessage = error.message || 'Internal server error';
+  if (typeof errorMessage !== 'string') {
+    try {
+      errorMessage = JSON.stringify(errorMessage);
+    } catch {
+      errorMessage = 'Internal server error';
+    }
+  }
+
+  // Standard error response format
   const response = {
-    success: false,
     error: {
-      message: error.message,
-      code: error.code || 'ERROR',
+      code: error.code || 'INTERNAL_ERROR',
+      message: errorMessage,
     },
   };
 
-  // Include details in development
-  if (config.server.nodeEnv === 'development' && error.details) {
+  // Always include details for workflow violations (user-facing errors)
+  if (error.code === 'WORKFLOW_CONTRACT_VIOLATION' && error.details) {
     response.error.details = error.details;
   }
-
-  // Include stack trace in development
-  if (config.server.nodeEnv === 'development' && error.stack) {
-    response.error.stack = error.stack;
+  // Include details and stack only in development for other errors
+  else if (config.server.nodeEnv === 'development') {
+    if (error.details) {
+      response.error.details = error.details;
+    }
+    if (error.stack) {
+      response.error.stack = error.stack;
+    }
   }
 
   res.status(error.statusCode || 500).json(response);

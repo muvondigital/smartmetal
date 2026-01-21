@@ -1,4 +1,4 @@
-const { connectDb } = require('./supabaseClient');
+const { connectDb } = require('../supabaseClient');
 
 /**
  * Seeds test data for Pricer V2 features:
@@ -28,11 +28,11 @@ async function seedPricerV2() {
     } else {
       await db.query(`
         INSERT INTO users (name, email, role, can_approve) VALUES
-        ('John Sales', 'john.sales@nscpricer.com', 'sales_rep', false),
-        ('Jane Sales', 'jane.sales@nscpricer.com', 'sales_rep', false),
-        ('Sarah Manager', 'sarah.manager@nscpricer.com', 'manager', true),
-        ('Mike Director', 'mike.director@nscpricer.com', 'manager', true),
-        ('Admin User', 'admin@nscpricer.com', 'admin', true);
+        ('John Sales', 'john.sales@muvondigital.com', 'sales_rep', false),
+        ('Jane Sales', 'jane.sales@muvondigital.com', 'sales_rep', false),
+        ('Sarah Manager', 'sarah.manager@muvondigital.com', 'manager', true),
+        ('Mike Director', 'mike.director@muvondigital.com', 'manager', true),
+        ('Admin User', 'admin@muvondigital.com', 'admin', true);
       `);
       console.log('✅ Seeded 5 users');
     }

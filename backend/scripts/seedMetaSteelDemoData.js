@@ -488,8 +488,8 @@ async function upsertRfq(db, tenantId, projectId, title, description = null, pro
   }
 
   const result = await db.query(`
-    INSERT INTO rfqs (tenant_id, project_id, rfq_name, notes, status)
-    VALUES ($1, $2, $3, $4, 'draft')
+    INSERT INTO rfqs (tenant_id, project_id, rfq_name, notes, status, document_type)
+    VALUES ($1, $2, $3, $4, 'draft', 'RFQ')
     RETURNING id
   `, [tenantId, projectId, title, description]);
 

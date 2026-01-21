@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      line-height: 1.6;
+      color: #333;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .header {
+      background-color: #dc2626;
+      color: white;
+      padding: 20px;
+      border-radius: 5px 5px 0 0;
+    }
+    .content {
+      background-color: #f9fafb;
+      padding: 20px;
+      border: 1px solid #e5e7eb;
+      border-top: none;
+    }
+    .urgent {
+      background-color: #fef2f2;
+      border-left: 4px solid #dc2626;
+      padding: 15px;
+      margin: 15px 0;
+    }
+    .button {
+      display: inline-block;
+      padding: 12px 24px;
+      background-color: #dc2626;
+      color: white;
+      text-decoration: none;
+      border-radius: 5px;
+      margin-top: 20px;
+    }
+    .details {
+      background-color: white;
+      padding: 15px;
+      border-radius: 5px;
+      margin: 15px 0;
+    }
+    .detail-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .detail-row:last-child {
+      border-bottom: none;
+    }
+    .footer {
+      text-align: center;
+      color: #6b7280;
+      font-size: 12px;
+      margin-top: 20px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>⚠️ URGENT: Backup Approval Required</h1>
+  </div>
+  <div class="content">
+    <div class="urgent">
+      <p><strong>URGENT ACTION REQUIRED</strong></p>
+      <p>The primary approver has not responded within the required timeframe. You have been assigned as the backup approver for this pricing run.</p>
+    </div>
+    
+    <p>Hello {{approverName}},</p>
+    
+    <p>A pricing run requires your immediate attention as a backup approver:</p>
+    
+    <div class="details">
+      <div class="detail-row">
+        <strong>RFQ Title:</strong>
+        <span>{{rfqTitle}}</span>
+      </div>
+      <div class="detail-row">
+        <strong>Client:</strong>
+        <span>{{clientName}}</span>
+      </div>
+      <div class="detail-row">
+        <strong>Approval Level:</strong>
+        <span>{{approvalLevel}}</span>
+      </div>
+      <div class="detail-row">
+        <strong>SLA Deadline:</strong>
+        <span style="color: #dc2626; font-weight: bold;">{{slaDeadline}}</span>
+      </div>
+    </div>
+    
+    <p style="color: #dc2626; font-weight: bold;">⚠️ This approval has exceeded its SLA deadline. Immediate action is required.</p>
+    
+    <a href="{{approvalUrl}}" class="button">Review & Approve Now</a>
+    
+    <p style="margin-top: 20px; font-size: 14px; color: #6b7280;">
+      If you cannot click the button, copy and paste this URL into your browser:<br>
+      <a href="{{approvalUrl}}">{{approvalUrl}}</a>
+    </p>
+  </div>
+  
+  <div class="footer">
+    <p>This is an automated email from SmartMetal CPQ, a product from Muvon Digital, an innovation arm of Muvon Energy. Please do not reply to this email.</p>
+  </div>
+</body>
+</html>
+

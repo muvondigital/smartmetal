@@ -6,6 +6,13 @@
 const { body, query, param, validationResult } = require('express-validator');
 const { ValidationError } = require('./errorHandler');
 
+// Shared enums for Price Agreement V2 validation
+const AGREEMENT_TYPES_V2 = ['STANDARD', 'CUSTOMER_SPECIFIC', 'MATERIAL_GROUP', 'PROMOTIONAL'];
+const AGREEMENT_STATUSES_V2 = ['draft', 'pending_approval', 'approved', 'released', 'expired'];
+const CONDITION_TYPES_V2 = ['BASE_PRICE', 'DISCOUNT', 'SURCHARGE', 'FREIGHT', 'TAX', 'LME_ADJUSTMENT'];
+const RATE_TYPES_V2 = ['AMOUNT', 'PERCENTAGE'];
+const CONDITION_STATUSES_V2 = ['active', 'blocked'];
+
 /**
  * Handle validation errors
  */
@@ -107,6 +114,74 @@ const validations = {
   dateRange: [
     query('start_date').optional().isISO8601().withMessage('Invalid start_date format (ISO 8601 required)'),
     query('end_date').optional().isISO8601().withMessage('Invalid end_date format (ISO 8601 required)'),
+  ],
+
+  agreementV2Create: [
+    body('agreement_code').isString().trim().notEmpty().withMessage('agreement_code is required'),
+    body('agreement_type').isIn(AGREEMENT_TYPES_V2).withMessage('Invalid agreement_type'),
+    body('currency').isString().isLength({ min: 3, max: 3 }).withMessage('currency must be a 3-letter code'),
+    body('valid_from').isISO8601().withMessage('valid_from must be a valid ISO 8601 date'),
+    body('valid_to').isISO8601().withMessage('valid_to must be a valid ISO 8601 date'),
+    body('status').optional().isIn(AGREEMENT_STATUSES_V2).withMessage('Invalid status'),
+    body('customer_id').optional().isUUID().withMessage('customer_id must be a valid UUID'),
+    body('owner_user_id').optional().isUUID().withMessage('owner_user_id must be a valid UUID'),
+  ],
+
+  agreementV2Patch: [
+    body('agreement_code').optional().isString().trim().notEmpty().withMessage('agreement_code must be a non-empty string'),
+    body('agreement_type').optional().isIn(AGREEMENT_TYPES_V2).withMessage('Invalid agreement_type'),
+    body('currency').optional().isString().isLength({ min: 3, max: 3 }).withMessage('currency must be a 3-letter code'),
+    body('valid_from').optional().isISO8601().withMessage('valid_from must be a valid ISO 8601 date'),
+    body('valid_to').optional().isISO8601().withMessage('valid_to must be a valid ISO 8601 date'),
+    body('status').optional().isIn(AGREEMENT_STATUSES_V2).withMessage('Invalid status'),
+    body('customer_id').optional().isUUID().withMessage('customer_id must be a valid UUID'),
+    body('owner_user_id').optional().isUUID().withMessage('owner_user_id must be a valid UUID'),
+  ],
+
+  agreementV2ConditionCreate: [
+    body('condition_type').isIn(CONDITION_TYPES_V2).withMessage('Invalid condition_type'),
+    body('rate_type').isIn(RATE_TYPES_V2).withMessage('Invalid rate_type'),
+    body('rate_value').isFloat().withMessage('rate_value must be numeric'),
+    body('has_scale').optional().isBoolean().withMessage('has_scale must be boolean'),
+    body('condition_priority').optional().isInt().withMessage('condition_priority must be an integer'),
+    body('valid_from').optional().isISO8601().withMessage('valid_from must be a valid ISO 8601 date'),
+    body('valid_to').optional().isISO8601().withMessage('valid_to must be a valid ISO 8601 date'),
+    body('status').optional().isIn(CONDITION_STATUSES_V2).withMessage('Invalid status'),
+    body('key_customer_id').optional().isUUID().withMessage('key_customer_id must be a valid UUID'),
+    body('key_material_id').optional().isUUID().withMessage('key_material_id must be a valid UUID'),
+    body('key_material_group').optional().isString().trim(),
+    body('key_region').optional().isString().trim(),
+    body('key_incoterm').optional().isString().trim(),
+  ],
+
+  agreementV2ConditionPatch: [
+    body('condition_type').optional().isIn(CONDITION_TYPES_V2).withMessage('Invalid condition_type'),
+    body('rate_type').optional().isIn(RATE_TYPES_V2).withMessage('Invalid rate_type'),
+    body('rate_value').optional().isFloat().withMessage('rate_value must be numeric'),
+    body('has_scale').optional().isBoolean().withMessage('has_scale must be boolean'),
+    body('condition_priority').optional().isInt().withMessage('condition_priority must be an integer'),
+    body('valid_from').optional().isISO8601().withMessage('valid_from must be a valid ISO 8601 date'),
+    body('valid_to').optional().isISO8601().withMessage('valid_to must be a valid ISO 8601 date'),
+    body('status').optional().isIn(CONDITION_STATUSES_V2).withMessage('Invalid status'),
+    body('key_customer_id').optional().isUUID().withMessage('key_customer_id must be a valid UUID'),
+    body('key_material_id').optional().isUUID().withMessage('key_material_id must be a valid UUID'),
+    body('key_material_group').optional().isString().trim(),
+    body('key_region').optional().isString().trim(),
+    body('key_incoterm').optional().isString().trim(),
+  ],
+
+  agreementV2ScaleCreate: [
+    body('scale_from').isFloat().withMessage('scale_from must be numeric'),
+    body('scale_to').optional().isFloat().withMessage('scale_to must be numeric'),
+    body('scale_rate_type').isIn(RATE_TYPES_V2).withMessage('Invalid scale_rate_type'),
+    body('scale_rate_value').isFloat().withMessage('scale_rate_value must be numeric'),
+  ],
+
+  agreementV2ScalePatch: [
+    body('scale_from').optional().isFloat().withMessage('scale_from must be numeric'),
+    body('scale_to').optional().isFloat().withMessage('scale_to must be numeric'),
+    body('scale_rate_type').optional().isIn(RATE_TYPES_V2).withMessage('Invalid scale_rate_type'),
+    body('scale_rate_value').optional().isFloat().withMessage('scale_rate_value must be numeric'),
   ],
 
   priceAgreement: [

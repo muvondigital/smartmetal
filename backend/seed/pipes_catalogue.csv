@@ -1,0 +1,11 @@
+standard,material_spec,manufacturing_method,nps_inch,dn_mm,outside_diameter_in,outside_diameter_mm,schedule,wall_thickness_in,wall_thickness_mm,weight_lb_per_ft,weight_kg_per_m,shipping_weight_m3,end_type,is_stainless,is_preferred,notes
+ASME B36.10,ASTM A106 GR.B,SMLS,0.5,15,0.84,21.3,40,0.109,2.77,0.85,1.27,0.001,PE,false,true,Sample carbon steel seamless pipe
+ASME B36.10,ASTM A106 GR.B,SMLS,1,25,1.315,33.4,40,0.133,3.38,1.68,2.50,0.002,PE,false,true,Sample carbon steel seamless pipe
+ASME B36.10,ASTM A106 GR.B,SMLS,2,50,2.375,60.3,40,0.154,3.91,3.65,5.44,0.004,PE,false,true,Sample carbon steel seamless pipe
+ASME B36.10,ASTM A106 GR.B,SMLS,3,80,3.5,88.9,40,0.216,5.49,7.58,11.29,0.008,PE,false,true,Sample carbon steel seamless pipe
+ASME B36.10,ASTM A106 GR.B,SMLS,4,100,4.5,114.3,40,0.237,6.02,10.79,16.07,0.012,PE,false,true,Sample carbon steel seamless pipe
+ASME B36.10,ASTM A106 GR.B,SMLS,6,150,6.625,168.3,40,0.28,7.11,18.97,28.26,0.024,PE,false,true,Sample carbon steel seamless pipe
+ASME B36.10,ASTM A312 TP316L,SMLS,2,50,2.375,60.3,40,0.154,3.91,3.65,5.44,0.004,PE,true,true,Sample stainless steel seamless pipe
+ASME B36.10,ASTM A312 TP316L,SMLS,3,80,3.5,88.9,40,0.216,5.49,7.58,11.29,0.008,PE,true,true,Sample stainless steel seamless pipe
+API 5L,API 5L X52,ERW,2,50,2.375,60.3,STD,0.154,3.91,3.65,5.44,0.004,BE,false,true,Sample API 5L welded pipe
+API 5L,API 5L X52,ERW,4,100,4.5,114.3,STD,0.237,6.02,10.79,16.07,0.012,BE,false,true,Sample API 5L welded pipe

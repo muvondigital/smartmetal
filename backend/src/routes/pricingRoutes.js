@@ -1,14 +1,63 @@
 const express = require('express');
 const router = express.Router();
 const pricingService = require('../services/pricingService');
+const { optionalAuth } = require('../middleware/auth');
+const { tenantMiddleware } = require('../middleware/tenant');
+const { AppError } = require('../middleware/errorHandler');
+const { isValidUuid, requireUuid } = require('../utils/uuidValidator');
+
+// Apply optional auth first so tenant middleware can resolve JWT tenant
+router.use(optionalAuth);
+router.use(tenantMiddleware);
+
+/**
+ * UUID validation middleware for rfqId parameter
+ * Validates that rfqId in route params is a valid UUID before proceeding
+ */
+function validateRfqIdParam(req, res, next) {
+  const rfqId = req.params.rfqId;
+  
+  if (!rfqId || typeof rfqId !== 'string' || rfqId.trim() === '') {
+    return res.status(400).json({
+      error: 'INVALID_RFQ_ID',
+      details: 'RFQ ID is required and cannot be empty',
+    });
+  }
+  
+  if (!isValidUuid(rfqId)) {
+    return res.status(400).json({
+      error: 'INVALID_RFQ_ID',
+      details: `RFQ ID "${rfqId}" is not a valid UUID format`,
+    });
+  }
+  
+  next();
+}
 
 /**
  * GET /api/pricing-runs/rfq/:rfqId
  * Get all pricing runs for an RFQ
  */
-router.get('/rfq/:rfqId', async (req, res) => {
+router.get('/rfq/:rfqId', validateRfqIdParam, async (req, res) => {
   try {
-    const pricingRuns = await pricingService.getPricingRunsByRfqId(req.params.rfqId);
+    console.log('[PRICING RUNS LIST] tenant/resolution', {
+      tenantId: req.tenantId,
+      tenantCode: req.tenantCode,
+      rfqId: req.params.rfqId,
+    });
+    
+    // Validate tenantId
+    if (!isValidUuid(req.tenantId)) {
+      return res.status(400).json({
+        error: 'INVALID_TENANT_ID',
+        details: 'Tenant ID is required and must be a valid UUID',
+      });
+    }
+    
+    const trimmedRfqId = req.params.rfqId.trim();
+    const tenantId = req.tenantId.trim();
+    
+    const pricingRuns = await pricingService.getPricingRunsByRfqId(trimmedRfqId, tenantId);
     res.json(pricingRuns);
   } catch (error) {
     console.error('Error fetching pricing runs:', error);
@@ -25,7 +74,7 @@ router.get('/rfq/:rfqId', async (req, res) => {
  */
 router.get('/:id', async (req, res) => {
   try {
-    const pricingRun = await pricingService.getPricingRunById(req.params.id);
+    const pricingRun = await pricingService.getPricingRunById(req.params.id, req.tenantId);
     res.json(pricingRun);
   } catch (error) {
     console.error('Error fetching pricing run:', error);
@@ -43,61 +92,195 @@ router.get('/:id', async (req, res) => {
 });
 
 /**
- * POST /api/pricing-runs/rfq/:rfqId
- * Create a new pricing run for an RFQ
+ * POST /api/pricing-runs/:id/lock
+ * Lock a pricing run before approval submission
  */
-router.post('/rfq/:rfqId', async (req, res) => {
+router.post('/:id/lock', async (req, res) => {
   try {
-    const pricingRun = await pricingService.createPriceRunForRfq(req.params.rfqId);
-    res.status(201).json(pricingRun);
+    const lockedBy = req.user?.email || req.user?.name || req.body?.locked_by || null;
+    const pricingRun = await pricingService.lockPricingRun(req.params.id, req.tenantId, lockedBy);
+    res.json(pricingRun);
   } catch (error) {
-    console.error('Error creating pricing run:', error);
-    if (error.message === 'RFQ not found') {
+    console.error('Error locking pricing run:', error);
+    if (error.message === 'Pricing run not found') {
       return res.status(404).json({
-        error: 'RFQ not found',
-        rfq_id: req.params.rfqId,
-      });
-    }
-    if (error.message === 'RFQ has no items to price') {
-      return res.status(400).json({
-        error: 'RFQ has no items to price',
-        details: error.message,
+        error: 'Pricing run not found',
+        id: req.params.id,
       });
     }
     res.status(500).json({
-      error: 'Failed to create pricing run',
+      error: 'Failed to lock pricing run',
       details: error.message,
     });
   }
 });
 
 /**
- * PUT /api/pricing-runs/:id/outcome
- * Update pricing run outcome (won/lost)
- * Body: { outcome: 'won' | 'lost', notes?: string }
+ * POST /api/pricing-runs/rfq/:rfqId
+ * Create a new pricing run for an RFQ
+ * Body (optional): { superseded_reason?: string, has_reprice_permission?: boolean }
  */
-router.put('/:id/outcome', async (req, res) => {
+router.post('/rfq/:rfqId', validateRfqIdParam, async (req, res) => {
   try {
-    const { outcome, notes } = req.body;
+    // CRITICAL FIX: Validate and normalize UUIDs to prevent PostgreSQL 22P02 errors
+    let validatedRfqId, validatedTenantId;
+    try {
+      validatedRfqId = requireUuid(req.params.rfqId, 'rfqId');
+      validatedTenantId = requireUuid(req.tenantId, 'tenantId');
+    } catch (error) {
+      return res.status(400).json({
+        error: 'INVALID_UUID',
+        details: error.message,
+      });
+    }
+
+    const trimmedRfqId = validatedRfqId;
+    const trimmedTenantId = validatedTenantId;
+
+    const context = {
+      correlationId: req.correlationId,
+      superseded_reason: req.body?.superseded_reason || null,
+      has_reprice_permission: req.body?.has_reprice_permission === true, // Explicit opt-in
+    };
+    
+    // createPriceRunForRfq now returns a clean object fetched via getPricingRunById
+    // This ensures no circular references or non-serializable properties
+    const pricingRun = await pricingService.createPriceRunForRfq(trimmedRfqId, trimmedTenantId, context);
+    
+    // Double-check serialization safety before sending
+    const { sanitizeForSerialization } = require('../utils/objectSerializer');
+    const cleanResponse = sanitizeForSerialization(pricingRun);
+    
+    res.status(201).json(cleanResponse);
+  } catch (error) {
+    console.error('Error creating pricing run:', error);
+    
+    // Safely extract error message to avoid circular reference issues
+    // Use try-catch to handle any serialization errors
+    let errorMessage = 'Unknown error occurred';
+    let errorCode = null;
+    let errorDetails = null;
+    let statusCode = 500;
+    
+    try {
+      errorMessage = error?.message || 'Unknown error occurred';
+      errorCode = error?.code || null;
+      statusCode = error?.statusCode || 500;
+      
+      // Safely extract error details - avoid circular references
+      if (error?.details) {
+        if (typeof error.details === 'object' && !Array.isArray(error.details)) {
+          // Use sanitizeForSerialization to clean error details
+          const { sanitizeForSerialization } = require('../utils/objectSerializer');
+          errorDetails = sanitizeForSerialization(error.details);
+        } else {
+          errorDetails = error.details;
+        }
+      }
+    } catch (extractError) {
+      console.error('Error extracting error details:', extractError);
+      // Fall back to safe defaults
+      errorMessage = String(error?.message || 'Unknown error occurred');
+    }
+    
+    // Handle preflight validation errors
+    if (errorCode === 'PRICING_PREFLIGHT_FAILED') {
+      return res.status(statusCode || 409).json({
+        error: {
+          code: errorCode,
+          message: errorMessage,
+          details: {
+            rfq_id: req.params.rfqId,
+            missing: (errorDetails?.missing || []).map(m => String(m)),
+            validationErrors: (errorDetails?.validationErrors || []).map(e => String(e)),
+          },
+        },
+      });
+    }
+    
+    if (errorCode === 'WORKFLOW_CONTRACT_VIOLATION' || (error instanceof AppError && errorCode === 'WORKFLOW_CONTRACT_VIOLATION')) {
+      const { sanitizeForSerialization } = require('../utils/objectSerializer');
+      return res.status(statusCode || 400).json({
+        error: {
+          code: errorCode,
+          message: errorMessage,
+          details: {
+            rfq_id: req.params.rfqId,
+            ...(errorDetails ? sanitizeForSerialization(errorDetails) : {}),
+          },
+        },
+      });
+    }
+    if (errorMessage === 'RFQ not found') {
+      return res.status(404).json({
+        error: 'RFQ not found',
+        rfq_id: req.params.rfqId,
+      });
+    }
+    if (errorMessage === 'RFQ has no items to price') {
+      return res.status(400).json({
+        error: 'RFQ has no items to price',
+        details: errorMessage,
+      });
+    }
+    if (errorMessage.includes('Cannot create new pricing run: Current approved quote exists')) {
+      return res.status(400).json({
+        error: 'Cannot create new pricing run',
+        details: errorMessage,
+      });
+    }
+    
+    // Final fallback - ensure we can always send a response
+    try {
+      res.status(500).json({
+        error: 'Failed to create pricing run',
+        details: errorMessage,
+      });
+    } catch (jsonError) {
+      // Last resort - send plain text if JSON serialization fails
+      console.error('CRITICAL: Failed to send JSON error response:', jsonError);
+      res.status(500).send(`Failed to create pricing run: ${errorMessage}`);
+    }
+  }
+});
+
+/**
+ * PATCH /api/pricing-runs/:id/outcome
+ * Update pricing run outcome (won/lost/pending/cancelled)
+ * Body: { 
+ *   outcome: 'won' | 'lost' | 'pending' | 'cancelled',
+ *   outcomeDate?: string (ISO date string),
+ *   outcomeReason?: string
+ * }
+ */
+router.patch('/:id/outcome', async (req, res) => {
+  try {
+    const { outcome, outcomeDate, outcomeReason } = req.body;
 
     if (!outcome) {
       return res.status(400).json({
         error: 'outcome is required',
-        details: 'outcome must be "won" or "lost"',
+        details: 'outcome must be one of: "won", "lost", "pending", "cancelled"',
+      });
+    }
+
+    // Validate outcome value
+    if (!['won', 'lost', 'pending', 'cancelled'].includes(outcome)) {
+      return res.status(400).json({
+        error: 'Invalid outcome',
+        details: 'outcome must be one of: "won", "lost", "pending", "cancelled"',
       });
     }
 
     const pricingRun = await pricingService.updatePricingRunOutcome(
       req.params.id,
       outcome,
-      notes
+      req.tenantId,
+      outcomeDate,
+      outcomeReason
     );
 
-    res.json({
-      success: true,
-      message: `Pricing run marked as ${outcome}`,
-      pricing_run: pricingRun,
-    });
+    res.json(pricingRun);
   } catch (error) {
     console.error('Error updating pricing run outcome:', error);
     if (error.message === 'Pricing run not found') {
@@ -106,7 +289,7 @@ router.put('/:id/outcome', async (req, res) => {
         id: req.params.id,
       });
     }
-    if (error.message === 'Outcome must be "won" or "lost"') {
+    if (error.message.includes('Outcome must be')) {
       return res.status(400).json({
         error: 'Invalid outcome',
         details: error.message,
@@ -138,6 +321,7 @@ router.post('/:id/revisions', async (req, res) => {
     const newPricingRun = await pricingService.createPricingRunRevision(
       req.params.id,
       reason,
+      req.tenantId,
       created_by
     );
 
@@ -167,7 +351,7 @@ router.post('/:id/revisions', async (req, res) => {
  */
 router.get('/:id/versions', async (req, res) => {
   try {
-    const versions = await pricingService.getPricingRunVersions(req.params.id);
+    const versions = await pricingService.getPricingRunVersions(req.params.id, req.tenantId);
 
     res.json({
       success: true,
@@ -195,7 +379,7 @@ router.get('/:id/versions', async (req, res) => {
  */
 router.get('/:id/version-snapshots', async (req, res) => {
   try {
-    const snapshots = await pricingService.getVersionSnapshots(req.params.id);
+    const snapshots = await pricingService.getVersionSnapshots(req.params.id, req.tenantId);
 
     res.json({
       success: true,
@@ -240,6 +424,7 @@ router.get('/:id/compare-versions', async (req, res) => {
     const comparison = await pricingService.compareVersions(
       req.params.id,
       version1Num,
+      req.tenantId,
       version2Num
     );
 
@@ -263,4 +448,3 @@ router.get('/:id/compare-versions', async (req, res) => {
 });
 
 module.exports = router;
-

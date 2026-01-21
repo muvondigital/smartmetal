@@ -1,0 +1,368 @@
+[
+  {
+    "hs_code": "3917.40.0000",
+    "description": "Plastic pipe fittings",
+    "category": "fittings",
+    "default_import_duty_rate": 20
+  },
+  {
+    "hs_code": "5806.31.3000",
+    "description": "Ribbons for slide fasteners (zipper manufacturing)",
+    "category": "fasteners",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "5806.32.5000",
+    "description": "Ribbons for slide fasteners",
+    "category": "fasteners",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "5911.90.1000",
+    "description": "Gaskets and seals (technical textiles)",
+    "category": "gaskets",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "6811.40.3000",
+    "description": "Tubes or pipes",
+    "category": "pipes",
+    "default_import_duty_rate": 10
+  },
+  {
+    "hs_code": "6811.40.4000",
+    "description": "Tube or pipe fittings",
+    "category": "fittings",
+    "default_import_duty_rate": 20
+  },
+  {
+    "hs_code": "6811.89.1000",
+    "description": "Other tubes or pipes",
+    "category": "pipes",
+    "default_import_duty_rate": 10
+  },
+  {
+    "hs_code": "6811.89.2000",
+    "description": "Other composite pipe fittings",
+    "category": "fittings",
+    "default_import_duty_rate": 20
+  },
+  {
+    "hs_code": "6906.00.0000",
+    "description": "Ceramic pipes, conduits, guttering and pipe fittings",
+    "category": "fittings",
+    "default_import_duty_rate": 30
+  },
+  {
+    "hs_code": "7210/7212",
+    "description": "Zinc-coated/coated iron sheets",
+    "category": "iron",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7212.20 / 7212.30 / 7212.40",
+    "description": "Zinc-coated strips, electrolytic or otherwise",
+    "category": "zinc",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7212.30 / 7212.40",
+    "description": "Alloy-coated strip/coil",
+    "category": "alloy",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7217.30.3400",
+    "description": "Copper alloy coated steel wire",
+    "category": "alloy",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7220/7221/7222",
+    "description": "Stainless plates, sheets, coils",
+    "category": "steel",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7221.00.0000",
+    "description": "Hot-rolled coils/bars of stainless steel",
+    "category": "steel",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7225.92.2000",
+    "description": "Alloy steel plated w/ zinc-aluminium-magnesium",
+    "category": "alloy",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7226.99.1100 / 7226.99.9100",
+    "description": "Alloy steel strip plated/coated with zinc",
+    "category": "zinc",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7227.20.0000",
+    "description": "Bars/rods of silico-manganese steel",
+    "category": "alloy",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7302.40.0000",
+    "description": "Fish‑plates and sole plates for rail applications",
+    "category": "iron",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7303.00.1100",
+    "description": "Hubless cast‑iron tubes and pipes",
+    "category": "pipes",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7305.31.1000",
+    "description": "Stainless steel pipes & tubes",
+    "category": "pipes",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7306.40.2000",
+    "description": "Stainless steel pipes > 105 mm OD",
+    "category": "pipes",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7306.40.3000",
+    "description": "Stainless pipes with ≥30% nickel, OD ≤ 10 mm",
+    "category": "nickel",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7306.90.9100",
+    "description": "High‑pressure pipes (yield ≥ 42,000 psi, ID < 12.5mm)",
+    "category": "pipes",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7306.90.9400",
+    "description": "Other high‑pressure pipes, OD < 12.5mm",
+    "category": "pipes",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7306.90.9500",
+    "description": "Other high‑pressure pipes, OD ≥ 12.5mm",
+    "category": "pipes",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7307.11.1000",
+    "description": "Hubless cast iron tube or pipe fittings",
+    "category": "fittings",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7308.90.4000",
+    "description": "Corrugated or curved galvanized steel plates for conduits/culverts/tunnels",
+    "category": "plates",
+    "default_import_duty_rate": 15
+  },
+  {
+    "hs_code": "7312.10.9100",
+    "description": "Stranded steel wire for prestressing concrete",
+    "category": "steel",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7313.00.0000",
+    "description": "Barbed wire of iron or steel",
+    "category": "iron",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7314.31.0000",
+    "description": "Zinc-plated woven cloth/mesh",
+    "category": "zinc",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7314.41.0000",
+    "description": "Zinc-coated grill/netting/expanded metal",
+    "category": "zinc",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7316.00.0000",
+    "description": "Anchors, grapnels and parts thereof",
+    "category": "iron",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7325.10.2000",
+    "description": "Manhole covers, gratings and frames (cast iron)",
+    "category": "gratings",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7325.99.2000",
+    "description": "Other gratings and frames",
+    "category": "gratings",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7326.20/7326.90",
+    "description": "Articles of steel wire; clamp assemblies",
+    "category": "steel",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7326.90.3000",
+    "description": "Stainless steel clamp assemblies with rubber sleeves",
+    "category": "fittings",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "7409.40.0000",
+    "description": "Plates/sheets of CuNi alloys",
+    "category": "copper",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7410.11 / 7410.12",
+    "description": "Foil/strip of copper or copper alloys",
+    "category": "copper",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7411.10.0000",
+    "description": "Copper tubes & pipes (refined copper)",
+    "category": "copper",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7411.21.0000",
+    "description": "Copper-zinc alloy (brass) pipes & tubes",
+    "category": "copper",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7411.22.0000",
+    "description": "**Copper-nickel (CuNi) alloy tubes & pipes**",
+    "category": "copper",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7412.10.0000",
+    "description": "Fittings of refined copper",
+    "category": "copper",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7412.20.9100",
+    "description": "Fittings of copper-zinc alloys (brass)",
+    "category": "copper",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7504.00.0000",
+    "description": "Nickel powder/flakes",
+    "category": "nickel",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7505.12 / 7505.22",
+    "description": "Nickel alloy bars, rods, profiles",
+    "category": "nickel",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7506.20.0000",
+    "description": "Nickel alloy strip, sheet, plate (if formed into pipe)",
+    "category": "alloy",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7507.12.0000",
+    "description": "Nickel alloy pipe fittings",
+    "category": "alloy",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7604.29.3000",
+    "description": "Aluminium profiles for zip fasteners",
+    "category": "fasteners",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "7606.12.2000",
+    "description": "Aluminium plates for printing industry",
+    "category": "plates",
+    "default_import_duty_rate": 30
+  },
+  {
+    "hs_code": "8007.00.2000",
+    "description": "Tin plates/sheets >0.2mm",
+    "category": "plates",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "8102.95.0000",
+    "description": "Molybdenum plates/sheet/strip",
+    "category": "plates",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "8481.30.1000",
+    "description": "Swing check valves of cast iron (ID 4–60 cm)",
+    "category": "valves",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "8481.80.3000",
+    "description": "Cocks and valves incl. gas appliance valves",
+    "category": "valves",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "8481.80.6100",
+    "description": "Manually operated gate valves (ID 5–40 cm)",
+    "category": "valves",
+    "default_import_duty_rate": 20
+  },
+  {
+    "hs_code": "8481.90.1000",
+    "description": "Housings for sluice/gate valves (ID 50–400 mm)",
+    "category": "valves",
+    "default_import_duty_rate": 20
+  },
+  {
+    "hs_code": "8481.90.2200",
+    "description": "Bodies for LPG cylinder valves",
+    "category": "valves",
+    "default_import_duty_rate": 25
+  },
+  {
+    "hs_code": "8484.10.0000",
+    "description": "Gaskets and similar joints of metal sheeting combined with other material",
+    "category": "gaskets",
+    "default_import_duty_rate": 0
+  },
+  {
+    "hs_code": "9406.20/9406.90",
+    "description": "Modular building units of steel",
+    "category": "steel",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "9406.90.1100",
+    "description": "Modular building units of iron or steel",
+    "category": "iron",
+    "default_import_duty_rate": 5
+  },
+  {
+    "hs_code": "9406.90.3000",
+    "description": "Other modular units of iron or steel",
+    "category": "iron",
+    "default_import_duty_rate": 20
+  }
+]

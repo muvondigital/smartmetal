@@ -143,7 +143,7 @@ describe('🔥 CRITICAL SMOKE TESTS - SmartMetal Core Flows', () => {
       // Get RFQ with line items
       const detailQuery = `
         SELECT
-          r.id, r.rfq_number, r.client_name, r.status,
+          r.id, r.rfq_number, r.client_id, r.status,
           json_agg(
             json_build_object(
               'id', ri.id,
