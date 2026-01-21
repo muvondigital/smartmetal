@@ -27,6 +27,34 @@ helpful-aurora-482800-v8-*.json
 gcp-credentials.json
 backend/gcp-credentials.json
 
+# API Keys, Tokens, Secrets, Credentials
+*api*key*
+*api*token*
+*token*
+*secret*
+*credential*
+*password*
+*private*key*
+*.pem
+*.key
+*.p12
+*.pfx
+*oauth*
+*auth*
+*access*
+*refresh*
+*CLOUDFLARE*
+*GITHUB*
+*AZURE*
+*GCP*
+*AWS*
+secrets.json
+credentials.json
+config.json
+settings.json
+*.secret
+*.confidential
+
 # Logs
 logs/
 *.log
