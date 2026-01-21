@@ -1,10 +1,19 @@
-name = "smartmetal-cpq-web"
+name = "smartmetal"
 compatibility_date = "2024-01-01"
 pages_build_output_dir = "dist"
 
+[vars]
+VITE_API_BASE_URL = "https://smartmetal-backend-293567440480.us-central1.run.app"
+
 [env.production]
-name = "smartmetal-cpq-web"
+name = "smartmetal"
+
+[env.production.vars]
+VITE_API_BASE_URL = "https://smartmetal-backend-293567440480.us-central1.run.app"
 
 [env.preview]
-name = "smartmetal-cpq-web-preview"
+name = "smartmetal-preview"
+
+[env.preview.vars]
+VITE_API_BASE_URL = "https://smartmetal-backend-293567440480.us-central1.run.app"
 

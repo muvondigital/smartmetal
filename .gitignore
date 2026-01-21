@@ -16,8 +16,9 @@ coverage/
 *.env.*
 .env.local
 .env.development
-.env.production
 .env.test
+# Allow web/.env.production (contains only public URLs, no secrets)
+!web/.env.production
 .env.azure.backup
 .env.gcp
 .env.gcp.example
