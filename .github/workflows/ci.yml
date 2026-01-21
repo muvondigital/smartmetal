@@ -107,7 +107,7 @@ jobs:
     name: Deploy Frontend to Cloudflare Pages
     runs-on: ubuntu-latest
     needs: [backend-test, frontend-test]
-    if: always() && (needs.backend-test.result == 'success' || needs.backend-test.result == 'failure') && (needs.frontend-test.result == 'success' || needs.frontend-test.result == 'failure') && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout code
