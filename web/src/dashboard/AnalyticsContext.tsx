@@ -11,9 +11,49 @@ import { DashboardMetrics } from '../services/analyticsApi';
 // Simple demo data placeholder (removed full demoAnalytics file)
 const demoAnalytics: DashboardMetrics = {
   data_mode: 'demo',
-  quotes: { total_quotes: 0, pending_quotes: 0, approved_quotes: 0, rejected_quotes: 0 },
-  revenue: { total_value: 0, average_quote_value: 0, currency: 'MYR' },
-  performance: { avg_approval_time_hours: 0, win_rate: 0, total_agreements: 0 }
+  date_range: {
+    start: '',
+    end: '',
+  },
+  quotes: {
+    total_quotes: 0,
+    pending_quotes: 0,
+    approved_quotes: 0,
+    rejected_quotes: 0,
+  },
+  revenue: {
+    total_value: 0,
+    average_quote_value: 0,
+    currency: 'MYR',
+  },
+  win_loss: {
+    total_won: 0,
+    total_lost: 0,
+    win_rate: 0,
+    won_value: 0,
+    lost_value: 0,
+  },
+  margins: {
+    average_margin: 0,
+    min_margin: 0,
+    max_margin: 0,
+  },
+  approvals: {
+    pending_approvals: 0,
+    avg_approval_time_hours: 0,
+  },
+  agreements: {
+    total_active_agreements: 0,
+    agreement_utilization_rate: 0,
+    quotes_using_agreements: 0,
+  },
+  trends: {
+    quotes_change_percent: 0,
+    revenue_change_percent: 0,
+    approved_change_percent: 0,
+    pending_change_percent: 0,
+  },
+  revenue_time_series: [],
 };
 
 interface AnalyticsContextType {

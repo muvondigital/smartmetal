@@ -34,6 +34,12 @@ export interface PricingRunItem {
   // Final duty fields (Phase 5)
   final_import_duty_amount?: number | null;
   origin_country?: string | null;
+  // Phase 9: Landed Cost Engine V2 - logistics cost breakdown
+  freight_cost?: number | null;
+  insurance_cost?: number | null;
+  handling_cost?: number | null;
+  local_charges?: number | null;
+  item_landed_cost?: number | null;
 }
 
 export interface PricingRun {
@@ -66,6 +72,12 @@ export interface PricingRun {
   other_charges?: number | null;
   // Final duty fields (Phase 5)
   total_final_import_duty?: number | null;
+  // Phase 9: Landed Cost Engine V2 - logistics aggregates
+  total_freight_cost?: number | null;
+  total_insurance_cost?: number | null;
+  total_handling_cost?: number | null;
+  total_local_charges?: number | null;
+  total_landed_cost?: number | null;
 }
 
 export interface CreatePricingRunResponse {

@@ -351,7 +351,7 @@ export default function CommercialRequestWorkbench() {
                         </TableCell>
                         <TableCell>
                           <Input
-                            value={(draft.quantity ?? item.quantity ?? '') as string}
+                            value={String(draft.quantity ?? item.quantity ?? '')}
                             onChange={(event) =>
                               handleDraftChange(String(item.id), 'quantity', event.target.value)
                             }

@@ -9,8 +9,7 @@
     "dev:admin": "cd admin && npm run dev",
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --names \"BACKEND,FRONTEND\" --prefix-colors \"blue,green\"",
     "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" \"npm run dev:admin\" --names \"BACKEND,FRONTEND,ADMIN\" --prefix-colors \"blue,green,magenta\"",
-    "start": "npm run dev",
-    "prepare": "husky"
+    "start": "npm run dev"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",

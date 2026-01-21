@@ -480,7 +480,10 @@ export default function RfqDetail() {
     }
   };
 
-  const handleRunPricing = async (supersededReason?: string) => {
+  const handleRunPricing = async (
+    arg?: string | React.MouseEvent<HTMLButtonElement>
+  ) => {
+    const supersededReason = typeof arg === 'string' ? arg : undefined;
     // Frontend validation: Ensure rfqId is present and valid UUID format
     if (!id || typeof id !== 'string' || id.trim() === '') {
       toast.error('RFQ ID is missing. Please refresh the page and try again.');

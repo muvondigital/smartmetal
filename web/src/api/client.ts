@@ -58,11 +58,16 @@ function clearAuthData(): void {
 
 /**
  * Build headers with authentication and tenant headers
+ *
+ * Internally we normalize to a simple string map to keep TypeScript happy
+ * when adding Authorization / X-Tenant-Code keys.
  */
-function buildHeaders(customHeaders?: HeadersInit): HeadersInit {
-  const headers: HeadersInit = {
+type HeaderMap = Record<string, string>
+
+function buildHeaders(customHeaders?: HeadersInit): HeaderMap {
+  const headers: HeaderMap = {
     'Content-Type': 'application/json',
-    ...customHeaders,
+    ...(customHeaders as HeaderMap | undefined),
   }
 
   // Add Authorization header if token exists
@@ -87,11 +92,11 @@ function buildHeaders(customHeaders?: HeadersInit): HeadersInit {
   return headers
 }
 
-export function getAuthHeaders(customHeaders?: HeadersInit): HeadersInit {
+export function getAuthHeaders(customHeaders?: HeadersInit): HeaderMap {
   return buildHeaders(customHeaders)
 }
 
-export async function request<T>(endpoint: string, options?: RequestInit): Promise<T> {
+export async function request<T = any>(endpoint: string, options?: RequestInit): Promise<T> {
   const headers = buildHeaders(options?.headers)
   const fetchOptions: RequestInit = { ...options, headers }
 
