@@ -16,7 +16,7 @@ const jwt = require('jsonwebtoken');
 const { config } = require('../config/env');
 const { AuthenticationError, AuthorizationError } = require('./errorHandler');
 const { normalizeUuids, isValidUuid } = require('../utils/uuidValidator');
-const { connectDb } = require('../db/supabaseClient');
+const { withTenantContext } = require('../db/tenantContext');
 
 // Track if dev auth bypass warning has been shown
 let devAuthWarningShown = false;
@@ -74,19 +74,19 @@ async function verifyUserTenantIsolation(userId, tenantId) {
   }
 
   try {
-    const db = await connectDb();
-
-    // Verify user exists and belongs to the claimed tenant
-    const result = await db.query(`
-      SELECT u.id, u.tenant_id, u.is_active, t.is_active as tenant_is_active
-      FROM users u
-      INNER JOIN tenants t ON u.tenant_id = t.id
-      WHERE u.id = $1::uuid
-        AND u.tenant_id = $2::uuid
-        AND u.is_active = true
-        AND t.is_active = true
-      LIMIT 1
-    `, [userId.trim(), tenantId.trim()]);
+    // Use withTenantContext to set app.tenant_id for RLS policies
+    const result = await withTenantContext(tenantId.trim(), async (client) => {
+      return await client.query(`
+        SELECT u.id, u.tenant_id, u.is_active, t.is_active as tenant_is_active
+        FROM users u
+        INNER JOIN tenants t ON u.tenant_id = t.id
+        WHERE u.id = $1::uuid
+          AND u.tenant_id = $2::uuid
+          AND u.is_active = true
+          AND t.is_active = true
+        LIMIT 1
+      `, [userId.trim(), tenantId.trim()]);
+    });
 
     if (result.rows.length === 0) {
       // User doesn't exist, is inactive, or doesn't belong to this tenant
