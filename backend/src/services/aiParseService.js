@@ -1273,12 +1273,14 @@ function extractLineItemsFromTable(table, candidate) {
   for (let rowIdx = dataStartRowIndex; rowIdx < table.rows.length; rowIdx++) {
     const row = table.rows[rowIdx] || [];
 
-    // Get item number
-    const itemCell = (row[columnMap.itemIdx] || '').trim();
-    const itemNum = parseInt(itemCell, 10);
+    // Get item number (handle case where table has no item column at all)
+    const itemCell = columnMap.itemIdx >= 0 
+      ? (row[columnMap.itemIdx] || '').trim() 
+      : '';
+    const itemNum = itemCell ? parseInt(itemCell, 10) : NaN;
 
     // DEBUG: Log every row to see what's being filtered
-    console.log(`[EXTRACTION DEBUG] Row ${rowIdx}: itemCell="${itemCell}", itemNum=${itemNum}, isValid=${!isNaN(itemNum) && itemNum > 0}`);
+    console.log(`[EXTRACTION DEBUG] Row ${rowIdx}: itemCell="${itemCell}", itemNum=${itemNum}, isValid=${!isNaN(itemNum) && itemNum > 0}, hasItemColumn=${columnMap.itemIdx >= 0}`);
 
     // Check if this is a section separator (XX) or section header
     const descriptionCell = columnMap.descriptionIdx >= 0
@@ -1317,27 +1319,52 @@ function extractLineItemsFromTable(table, candidate) {
       continue;
     }
 
-    // Process rows with valid item numbers OR rows with description+quantity (even without item number)
+    // Process rows with valid item numbers OR rows with description+quantity (even without item number column)
+    // CRITICAL: Handle tables that don't have an item number column at all (columnMap.itemIdx < 0)
     if (isNaN(itemNum) || itemNum <= 0) {
       // For MTO documents with blank item numbers but valid description and quantity, generate synthetic ID
       // This ensures we don't lose legitimate items that just don't have item numbers
       const hasDescription = descriptionCell && descriptionCell.length > 3;
-      const quantityCell = columnMap.quantityIdx >= 0
-        ? (row[columnMap.quantityIdx] || '').trim()
-        : '';
-      const hasQuantity = quantityCell && !isNaN(parseFloat(quantityCell));
+      
+      // Try to find quantity in quantity column, or scan all columns for numeric values
+      let quantityCell = '';
+      let hasQuantity = false;
+      
+      if (columnMap.quantityIdx >= 0) {
+        quantityCell = (row[columnMap.quantityIdx] || '').trim();
+        hasQuantity = quantityCell && !isNaN(parseFloat(quantityCell));
+      } else {
+        // No quantity column detected - scan row for numeric values (might be in any column)
+        // Skip first few columns (usually size/type, description, materials)
+        for (let colIdx = 2; colIdx < row.length; colIdx++) {
+          const cellValue = (row[colIdx] || '').trim();
+          // Check if cell contains a number (might be "10", "10\n16", "21", etc.)
+          const numericMatch = cellValue.match(/[\d.,]+/);
+          if (numericMatch) {
+            const numValue = parseFloat(numericMatch[0].replace(/,/g, ''));
+            if (!isNaN(numValue) && numValue > 0) {
+              quantityCell = cellValue;
+              hasQuantity = true;
+              console.log(`[RFQ_HYBRID] Found quantity in column ${colIdx}: ${quantityCell}`);
+              break;
+            }
+          }
+        }
+      }
 
       if (hasDescription && hasQuantity) {
         // This appears to be a valid line item with missing item number - use row index as synthetic ID
         const syntheticItemNum = rowIdx + 10000; // Use large offset to avoid conflicts with real item numbers
-        console.log(`[RFQ_HYBRID] Valid item at row ${rowIdx} with missing item number, using synthetic ID ${syntheticItemNum}`);
+        console.log(`[RFQ_HYBRID] Valid item at row ${rowIdx} with missing item number, using synthetic ID ${syntheticItemNum} (description: "${descriptionCell.substring(0, 50)}...", quantity: ${quantityCell})`);
         // Continue to process this row below with synthetic item number
         itemNum = syntheticItemNum;
       } else {
         filteredRowCount++;
-        const reason = isNaN(itemNum)
-          ? `invalid_number (cell="${itemCell}")`
-          : `non_positive (itemNum=${itemNum})`;
+        const reason = columnMap.itemIdx < 0
+          ? `no_item_column (hasDescription=${!!hasDescription}, hasQuantity=${hasQuantity})`
+          : (isNaN(itemNum)
+            ? `invalid_number (cell="${itemCell}")`
+            : `non_positive (itemNum=${itemNum})`);
         filteredRowReasons.push({ rowIdx, itemCell, reason });
         console.log(`[RFQ_HYBRID] Filtered row ${rowIdx}: ${reason}`);
         continue;
