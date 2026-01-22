@@ -1295,7 +1295,8 @@ function extractLineItemsFromTable(table, candidate) {
       for (let colIdx = 0; colIdx < Math.min(5, row.length); colIdx++) {
         const cellValue = (row[colIdx] || '').trim();
         // If cell has substantial text (not just numbers/symbols), it's likely the description
-        if (cellValue.length > 10 && /[a-zA-Z]/.test(cellValue)) {
+        // Lowered threshold from 10 to 5 to catch shorter descriptions
+        if (cellValue.length > 5 && /[a-zA-Z]/.test(cellValue)) {
           descriptionCellOriginal = cellValue; // Keep original
           descriptionCell = cellValue.toUpperCase(); // Uppercase for checking
           console.log(`[RFQ_HYBRID] Found description in column ${colIdx} (not detected in columnMap): "${descriptionCell.substring(0, 50)}..."`);
@@ -1356,13 +1357,16 @@ function extractLineItemsFromTable(table, candidate) {
         hasQuantity = quantityCell && !isNaN(parseFloat(quantityCell));
       } else {
         // No quantity column detected - scan row for numeric values (might be in any column)
-        // Skip first few columns (usually size/type, description, materials)
-        for (let colIdx = 2; colIdx < row.length; colIdx++) {
+        // Skip first column (usually size/type), but check description column if it exists
+        const startCol = columnMap.descriptionIdx >= 0 ? columnMap.descriptionIdx + 1 : 1;
+        for (let colIdx = startCol; colIdx < row.length; colIdx++) {
           const cellValue = (row[colIdx] || '').trim();
           // Check if cell contains a number (might be "10", "10\n16", "21", etc.)
-          const numericMatch = cellValue.match(/[\d.,]+/);
-          if (numericMatch) {
-            const numValue = parseFloat(numericMatch[0].replace(/,/g, ''));
+          // Also handle cells with multiple numbers separated by newlines (like "10\n16")
+          const numericMatches = cellValue.match(/[\d.,]+/g);
+          if (numericMatches && numericMatches.length > 0) {
+            // Try first number, if it's > 0, use it
+            const numValue = parseFloat(numericMatches[0].replace(/,/g, ''));
             if (!isNaN(numValue) && numValue > 0) {
               quantityCell = cellValue;
               hasQuantity = true;
