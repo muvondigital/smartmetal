@@ -491,7 +491,7 @@ function detectLineItemTables(tables) {
   // REMOVED LIMIT: Extract from ALL tables that pass scoring - don't cap at 8
   // User requirement: Extract ALL items like a human would, not just "top 8 tables"
   const MIN_TABLE_SCORE = 10;  // Lowered from 100 to handle tables with revision columns
-  const MIN_NUMERIC_ROWS = 10;
+  const MIN_NUMERIC_ROWS = 5;  // Lowered from 10 to capture smaller tables (e.g., NAMEPLATE with 2 items)
 
   // Filter by score threshold - process ALL tables that pass the threshold
   // No limit: Extract from all valid tables to ensure complete extraction
@@ -689,7 +689,9 @@ function detectLineItemTables(tables) {
       }
 
       // Accept if: minimum signal + (boost signal OR enough numeric rows)
-      if (numericItemRowCount >= MIN_NUMERIC_ROWS || hasBoostSignal) {
+      // Lowered MIN_NUMERIC_ROWS to 5 to capture smaller tables (e.g., NAMEPLATE with 2 items)
+      // Boost signal (unit/spec/item column) allows acceptance even with fewer rows
+      if (numericItemRowCount >= MIN_NUMERIC_ROWS || hasBoostSignal || numericItemRowCount >= 2) {
         const minItem = itemNumbers.length > 0 ? Math.min(...itemNumbers) : 0;
         const maxItem = itemNumbers.length > 0 ? Math.max(...itemNumbers) : 0;
         console.log(`[RFQ_TABLE_ACCEPT] Table ${tableIdx + 1} passed strict mapping: ${numericItemRowCount} numeric rows (items ${minItem}-${maxItem})`);
@@ -1315,28 +1317,31 @@ function extractLineItemsFromTable(table, candidate) {
       continue;
     }
 
-    // Only process rows where item number is a positive integer
+    // Process rows with valid item numbers OR rows with description+quantity (even without item number)
     if (isNaN(itemNum) || itemNum <= 0) {
       // For MTO documents with blank item numbers but valid description and quantity, generate synthetic ID
-      // const hasDescription = descriptionCell && descriptionCell.length > 3;
-      // const quantityCell = columnMap.quantityIdx >= 0
-      //   ? (row[columnMap.quantityIdx] || '').trim()
-      //   : '';
-      // const hasQuantity = quantityCell && !isNaN(parseFloat(quantityCell));
+      // This ensures we don't lose legitimate items that just don't have item numbers
+      const hasDescription = descriptionCell && descriptionCell.length > 3;
+      const quantityCell = columnMap.quantityIdx >= 0
+        ? (row[columnMap.quantityIdx] || '').trim()
+        : '';
+      const hasQuantity = quantityCell && !isNaN(parseFloat(quantityCell));
 
-      // if (hasDescription && hasQuantity) {
-      //   // This appears to be a valid line item with missing item number - use row index
-      //   console.log(`[RFQ_HYBRID] Valid item at row ${rowIdx} with missing item number, using row index`);
-      //   // Continue to process this row below with synthetic item number
-      // } else {
-      filteredRowCount++;
-      const reason = isNaN(itemNum)
-        ? `invalid_number (cell="${itemCell}")`
-        : `non_positive (itemNum=${itemNum})`;
-      filteredRowReasons.push({ rowIdx, itemCell, reason });
-      console.log(`[RFQ_HYBRID] Filtered row ${rowIdx}: ${reason}`);
-      continue;
-      // }
+      if (hasDescription && hasQuantity) {
+        // This appears to be a valid line item with missing item number - use row index as synthetic ID
+        const syntheticItemNum = rowIdx + 10000; // Use large offset to avoid conflicts with real item numbers
+        console.log(`[RFQ_HYBRID] Valid item at row ${rowIdx} with missing item number, using synthetic ID ${syntheticItemNum}`);
+        // Continue to process this row below with synthetic item number
+        itemNum = syntheticItemNum;
+      } else {
+        filteredRowCount++;
+        const reason = isNaN(itemNum)
+          ? `invalid_number (cell="${itemCell}")`
+          : `non_positive (itemNum=${itemNum})`;
+        filteredRowReasons.push({ rowIdx, itemCell, reason });
+        console.log(`[RFQ_HYBRID] Filtered row ${rowIdx}: ${reason}`);
+        continue;
+      }
     }
 
     // Extract fields
@@ -1403,8 +1408,9 @@ function extractLineItemsFromTable(table, candidate) {
       : size1 || null;
 
     // Use synthetic line number if original is missing/invalid
-    const effectiveItemNum = (isNaN(itemNum) || itemNum <= 0) ? rowIdx : itemNum;
-    const usingSyntheticLineNumber = (isNaN(itemNum) || itemNum <= 0);
+    // Note: itemNum may have been set to synthetic value (rowIdx + 10000) above if row had description+quantity
+    const effectiveItemNum = itemNum; // itemNum is already set (either real or synthetic from above)
+    const usingSyntheticLineNumber = itemNum >= 10000; // Synthetic IDs start at 10000 (rowIdx + 10000)
 
     if (usingSyntheticLineNumber) {
       console.log(`[RFQ_HYBRID] Using synthetic line number ${effectiveItemNum} for row ${rowIdx} (original: "${itemCell}")`);
@@ -2188,10 +2194,14 @@ async function parseRfqWithGemini(structured) {
         mergedTables: mergedTables.length,
       };
 
-      console.log(`[Tables] Found ${candidates.length} candidate line-item table(s)`);
+      console.log(`[Tables] Found ${candidates.length} candidate line-item table(s) (from ${tables.length} total tables)`);
+      console.log(`[Tables] Candidate table indices: ${candidates.map(c => c.tableIndex + 1).join(', ')}`);
 
       if (candidates.length === 0) {
         console.warn(`[Tables] WARNING: No line-item tables detected. Check table structure and headers.`);
+      } else {
+        const totalNumericRows = candidates.reduce((sum, c) => sum + c.numericItemRowCount, 0);
+        console.log(`[Tables] Total numeric item rows across all candidates: ${totalNumericRows}`);
       }
 
       if (candidates.length > 0) {
@@ -2205,6 +2215,7 @@ async function parseRfqWithGemini(structured) {
         console.log(`[Tables] Grouped ${candidates.length} candidate(s) into ${groups.length} related table group(s)`);
 
         // Step 1b: Merge each group into a single logical table
+        console.log(`[Tables] Total candidate tables: ${candidates.length}, grouped into ${groups.length} group(s)`);
         for (let groupIdx = 0; groupIdx < groups.length; groupIdx++) {
           const group = groups[groupIdx];
           const groupCandidates = group.map(idx => candidates[idx]);
