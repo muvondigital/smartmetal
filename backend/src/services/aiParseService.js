@@ -1284,8 +1284,10 @@ function extractLineItemsFromTable(table, candidate) {
 
     // Get description - try detected column first, then scan row for text
     let descriptionCell = '';
+    let descriptionCellOriginal = ''; // Keep original case for extraction
     if (columnMap.descriptionIdx >= 0) {
-      descriptionCell = (row[columnMap.descriptionIdx] || '').trim().toUpperCase();
+      descriptionCellOriginal = (row[columnMap.descriptionIdx] || '').trim();
+      descriptionCell = descriptionCellOriginal.toUpperCase();
     } else {
       // No description column detected - scan row for text (usually in first few columns)
       // Skip empty cells and look for substantial text (likely description)
@@ -1294,7 +1296,8 @@ function extractLineItemsFromTable(table, candidate) {
         const cellValue = (row[colIdx] || '').trim();
         // If cell has substantial text (not just numbers/symbols), it's likely the description
         if (cellValue.length > 10 && /[a-zA-Z]/.test(cellValue)) {
-          descriptionCell = cellValue.toUpperCase();
+          descriptionCellOriginal = cellValue; // Keep original
+          descriptionCell = cellValue.toUpperCase(); // Uppercase for checking
           console.log(`[RFQ_HYBRID] Found description in column ${colIdx} (not detected in columnMap): "${descriptionCell.substring(0, 50)}..."`);
           break;
         }
@@ -1341,6 +1344,7 @@ function extractLineItemsFromTable(table, candidate) {
     if (isNaN(itemNum) || itemNum <= 0) {
       // For MTO documents with blank item numbers but valid description and quantity, generate synthetic ID
       // This ensures we don't lose legitimate items that just don't have item numbers
+      // Use descriptionCell (uppercase) for checking, but descriptionCellOriginal for actual extraction
       const hasDescription = descriptionCell && descriptionCell.length > 3;
       
       // Try to find quantity in quantity column, or scan all columns for numeric values
@@ -1389,9 +1393,9 @@ function extractLineItemsFromTable(table, candidate) {
     }
 
     // Extract fields
-    // Use descriptionCell we found (either from columnMap or via scanning)
-    const description = descriptionCell 
-      ? descriptionCell 
+    // Use descriptionCellOriginal we found (either from columnMap or via scanning) - preserve original case
+    const description = descriptionCellOriginal 
+      ? descriptionCellOriginal 
       : (columnMap.descriptionIdx >= 0 
         ? (row[columnMap.descriptionIdx] || '').trim() 
         : null);
