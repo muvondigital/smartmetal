@@ -1389,13 +1389,19 @@ function extractLineItemsFromTable(table, candidate) {
     }
 
     // Extract fields
-    const description = columnMap.descriptionIdx >= 0 
-      ? (row[columnMap.descriptionIdx] || '').trim() 
-      : null;
+    // Use descriptionCell we found (either from columnMap or via scanning)
+    const description = descriptionCell 
+      ? descriptionCell 
+      : (columnMap.descriptionIdx >= 0 
+        ? (row[columnMap.descriptionIdx] || '').trim() 
+        : null);
     
-    const quantityStr = columnMap.quantityIdx >= 0 
-      ? (row[columnMap.quantityIdx] || '').trim() 
-      : null;
+    // Use quantityCell we found (either from columnMap or via scanning)
+    const quantityStr = quantityCell 
+      ? quantityCell 
+      : (columnMap.quantityIdx >= 0 
+        ? (row[columnMap.quantityIdx] || '').trim() 
+        : null);
     
     // Try to parse quantity (may include unit like "10 EA" or "5 m")
     let quantity = null;
