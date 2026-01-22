@@ -1301,10 +1301,37 @@ async function structureRFQWithGPT(extractedData, pageCount = 1) {
     } else {
       console.log(`?? Standard extraction (${pageCount} pages)...`);
 
-      // Use standard extraction
+      // Calculate dynamic token allocation based on estimated item count
+      // Estimate: count table rows or use conservative default
+      const tables = extractedData.tables || [];
+      let estimatedItemCount = 0;
+      tables.forEach(table => {
+        const rows = table.rows || [];
+        const itemRows = rows.filter(row => {
+          if (!row || typeof row !== 'object') return false;
+          const values = Object.values(row).filter(v => v && String(v).trim().length > 0);
+          return values.length >= 2; // At least 2 non-empty cells
+        });
+        estimatedItemCount += itemRows.length;
+      });
+      
+      // If no tables, use conservative estimate based on page count
+      if (estimatedItemCount === 0) {
+        estimatedItemCount = Math.max(10, pageCount * 5); // ~5 items per page minimum
+      }
+
+      // Dynamic token calculation: base + per-item allowance
+      const BASE_TOKENS = 4000;
+      const TOKENS_PER_ITEM = 200;
+      const MAX_TOKENS = 30000; // Gemini 2.5 Pro supports 32K, use 30K for safety
+      const calculatedTokens = Math.min(BASE_TOKENS + (estimatedItemCount * TOKENS_PER_ITEM), MAX_TOKENS);
+
+      console.log(`   Estimated ${estimatedItemCount} items, allocating ${calculatedTokens} tokens`);
+
+      // Use standard extraction with dynamic token allocation
       structured = await callGPT4JSON(prompt, {
         temperature: 0.3,
-        maxTokens: 2000
+        maxTokens: calculatedTokens
       });
 
       console.log(`? Standard extraction complete: ${structured.items?.length || 0} items`);

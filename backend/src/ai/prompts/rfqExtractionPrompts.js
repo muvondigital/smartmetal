@@ -36,8 +36,13 @@ NSC is a steel trading company that trades:
 - Units: M (meters), EA (each), PCS (pieces), KG, SET
 
 WHAT TO EXTRACT:
-Focus on items that NSC trades (pipes, flanges, fittings, valves, structural steel, fasteners).
-IGNORE: Administrative documents (VDRL tables, revision histories, approval matrices, transmittals), non-steel items (electrical, cables, instruments, software, services).
+Extract ALL legitimate items from the document tables - extract everything that appears to be a material/item line in the document, regardless of type.
+Extract items like a human would: if it's in a table with item numbers, descriptions, quantities, and units - extract it.
+
+IGNORE ONLY:
+- Administrative documents (VDRL tables, revision histories, approval matrices, transmittals)
+- Header rows, footer rows, summary rows that don't represent actual items
+- Empty rows or rows with only formatting/separators
 
 NSC ENDPRODUCT FIELDS (only these):
 - item_no (line number)
@@ -84,8 +89,10 @@ Return a JSON object with this structure:
 }
 
 CRITICAL RULES:
-- Extract ALL items from tables that match NSC's business (pipes, flanges, fittings, valves, beams, plates, fasteners)
-- SKIP items that are clearly administrative (VDRL, revision history, approval matrices) or non-steel (electrical, cables, instruments, services)
+- Extract ALL legitimate items from tables - extract every item that appears in the document with item numbers, descriptions, quantities, and units
+- Extract items like a human would: if it's a real item in the document, extract it (cables, electrical, instruments, pipes, flanges - extract everything)
+- SKIP ONLY: Administrative tables (VDRL, revision history, approval matrices), header/footer rows, empty rows, summary rows
+- Let NSC decide later what to quote - your job is to extract everything that's in the document
 - Quantity and unit must be exact; use uppercase units (M, EA, PCS, KG, SET)
 - If a field is missing or unclear, set it to null (do NOT guess)
 - OD/TK only when the document clearly provides them

@@ -1694,7 +1694,9 @@ NSC is a steel trading company that trades:
 - Units: M (meters), EA (each), PCS (pieces), KG, SET
 
 WHAT TO EXTRACT:
-Focus on items that NSC trades (pipes, flanges, fittings, valves, structural steel, fasteners).
+Extract ALL legitimate items from the document tables - extract everything that appears to be a material/item line in the document, regardless of type.
+Extract items like a human would: if it's in a table with item numbers, descriptions, quantities, and units - extract it.
+Extract cables, electrical items, instruments, pipes, flanges, valves, structural steel, fasteners - extract EVERYTHING that's a real item in the document.
 
 WHAT TO IGNORE (DO NOT EXTRACT):
 - VDRL tables: Headers like "Document No.", "Document Title", "Document Number", "VDRL Code", "Data Requirement"
@@ -1702,7 +1704,7 @@ WHAT TO IGNORE (DO NOT EXTRACT):
 - Approval matrices: Headers like "Approved by", "Checked by", "Verified by", "Signature"
 - Document lists: Headers like "No." + "Document No." + "Document Title" together
 - Administrative tables: Headers with "Date", "Approved", "Signature", "Transmittal"
-- Non-steel items: Electrical, cables, instruments, software, services
+- Header rows, footer rows, summary rows, empty rows, formatting-only rows
 
 Your task is to ${hybridMode ? 'normalize pre-extracted line items and extract metadata' : 'extract structured RFQ information'} from the OCR text and tables provided below.
 

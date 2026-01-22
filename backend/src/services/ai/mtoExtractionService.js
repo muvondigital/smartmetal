@@ -164,6 +164,68 @@ function parseMaterialSpec(description) {
 }
 
 /**
+ * Calculates maximum completion tokens for MTO extraction based on estimated item count
+ * @param {number} estimatedItemCount - Estimated number of items (from table rows)
+ * @returns {number} Maximum completion tokens to request
+ */
+function calculateMaxTokensForMto(estimatedItemCount) {
+  // Base completion budget reserved for instructions, metadata, etc.
+  const BASE_COMPLETION_TOKENS = 4000;
+
+  // Per-item allowance. Keep it generous for complex MTOs with all item types.
+  const TOKENS_PER_ITEM = 200;
+
+  // Hard cap for completion tokens. Gemini 2.5 Pro supports up to 32K output tokens.
+  // We use 30000 to leave safety margin for JSON formatting and prevent truncation.
+  const MAX_COMPLETION_TOKENS = 30000;
+
+  const dynamic = BASE_COMPLETION_TOKENS + estimatedItemCount * TOKENS_PER_ITEM;
+
+  // Clamp to safe maximum.
+  return Math.min(dynamic, MAX_COMPLETION_TOKENS);
+}
+
+/**
+ * Estimates item count from extracted data (tables, text)
+ * @param {Object} extractedData - Raw extracted data
+ * @returns {number} Estimated item count
+ */
+function estimateItemCount(extractedData) {
+  const tables = extractedData.tables || [];
+  let estimatedCount = 0;
+
+  // Count rows in tables (excluding headers)
+  tables.forEach(table => {
+    const rows = table.rows || [];
+    // Filter out header rows and empty rows
+    const itemRows = rows.filter(row => {
+      if (!row || typeof row !== 'object') return false;
+      const values = Object.values(row).filter(v => v && String(v).trim().length > 0);
+      // Row should have at least 2 non-empty cells to be considered an item row
+      return values.length >= 2;
+    });
+    estimatedCount += itemRows.length;
+  });
+
+  // If no tables, estimate from text (rough: count lines with numbers)
+  if (estimatedCount === 0 && extractedData.text) {
+    const lines = extractedData.text.split('\n');
+    const itemLines = lines.filter(line => {
+      // Look for lines that might be items (have numbers and text)
+      return /\d+/.test(line) && /[A-Za-z]/.test(line) && line.trim().length > 10;
+    });
+    estimatedCount = Math.min(itemLines.length, 500); // Cap at 500 for safety
+  }
+
+  // Minimum estimate: at least 10 items if we have tables
+  if (estimatedCount === 0 && tables.length > 0) {
+    estimatedCount = 50; // Conservative default
+  }
+
+  return estimatedCount;
+}
+
+/**
  * Extracts hierarchical MTO structure using GPT-4
  * @param {Object} extractedData - Raw extracted data from Document Intelligence
  * @returns {Promise<Object>} - Hierarchical MTO structure
@@ -183,14 +245,22 @@ async function extractHierarchicalMto(extractedData) {
     }
   ];
 
+  // Estimate item count and calculate dynamic token allocation
+  const estimatedItemCount = estimateItemCount(extractedData);
+  const maxTokens = calculateMaxTokensForMto(estimatedItemCount);
+
+  console.log(`[MTO Extraction] Estimated ${estimatedItemCount} items, allocating ${maxTokens} tokens`);
+
   logInfo('mto_extraction_ai_call_start', {
-    promptId: promptDef.id
+    promptId: promptDef.id,
+    estimatedItemCount,
+    maxTokens
   });
 
   try {
     let structured = await callGPT4JSON(prompt, {
       temperature: 0.2, // Very low temperature for accurate extraction
-      maxTokens: 4000, // Increased for complex MTOs
+      maxTokens: maxTokens, // Dynamic token allocation based on item count
       retries: 2 // Bounded retries (initial + 1 retry with adjusted sampling)
     });
 
