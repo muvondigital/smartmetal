@@ -487,17 +487,17 @@ function detectLineItemTables(tables) {
     topCandidates
   }));
 
-  // Step 2: Try top N scored tables with strict column mapping (multi-table acceptance)
-  // REMOVED LIMIT: Extract from ALL tables that pass scoring - don't cap at 8
-  // User requirement: Extract ALL items like a human would, not just "top 8 tables"
-  const MIN_TABLE_SCORE = 10;  // Lowered from 100 to handle tables with revision columns
-  const MIN_NUMERIC_ROWS = 5;  // Lowered from 10 to capture smaller tables (e.g., NAMEPLATE with 2 items)
+  // Step 2: Try ALL scored tables with strict column mapping (multi-table acceptance)
+  // REMOVED LIMIT: Extract from ALL tables - process everything, let column mapping filter out bad ones
+  // User requirement: Extract ALL items like a human would, not just "top N tables"
+  // CRITICAL: Process ALL tables, not just high-scoring ones, to match what AI sees
+  const MIN_TABLE_SCORE = -100;  // Effectively disabled - process all tables
+  const MIN_NUMERIC_ROWS = 2;  // Very low threshold - accept tables with just 2+ numeric rows
 
-  // Filter by score threshold - process ALL tables that pass the threshold
-  // No limit: Extract from all valid tables to ensure complete extraction
+  // Process ALL tables - don't filter by score, let column mapping be the filter
+  // This ensures hybrid extraction sees the same tables that AI sees
   const qualifiedIndices = scoringResult.ranked
-    .filter(r => r.score >= MIN_TABLE_SCORE)
-    .map(r => r.tableIndex);
+    .map(r => r.tableIndex); // Process ALL tables, not just high-scoring ones
 
   console.log(`[RFQ_TABLE_PICK] Attempting strict mapping on ${qualifiedIndices.length} scored table(s) above threshold ${MIN_TABLE_SCORE}: [${qualifiedIndices.join(', ')}]`);
 
@@ -689,9 +689,9 @@ function detectLineItemTables(tables) {
       }
 
       // Accept if: minimum signal + (boost signal OR enough numeric rows)
-      // Lowered MIN_NUMERIC_ROWS to 5 to capture smaller tables (e.g., NAMEPLATE with 2 items)
-      // Boost signal (unit/spec/item column) allows acceptance even with fewer rows
-      if (numericItemRowCount >= MIN_NUMERIC_ROWS || hasBoostSignal || numericItemRowCount >= 2) {
+      // CRITICAL: Very lenient acceptance - accept if has ANY signal (item/description/quantity) AND 2+ numeric rows
+      // This ensures we process all tables that could have items, matching what AI sees
+      if (numericItemRowCount >= MIN_NUMERIC_ROWS || hasBoostSignal || (hasMinimumSignal && numericItemRowCount >= 2)) {
         const minItem = itemNumbers.length > 0 ? Math.min(...itemNumbers) : 0;
         const maxItem = itemNumbers.length > 0 ? Math.max(...itemNumbers) : 0;
         console.log(`[RFQ_TABLE_ACCEPT] Table ${tableIdx + 1} passed strict mapping: ${numericItemRowCount} numeric rows (items ${minItem}-${maxItem})`);
