@@ -266,15 +266,21 @@ export default function RfqImportPage() {
       : null;
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-8">
-      {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-slate-900 mb-2">Import Document</h1>
-        <p className="text-sm text-slate-600">
-          Upload a document (RFQ, RFP, MTO, BOM, PDF, or image) and let Pricer extract line items to create a
-          commercial request.
-        </p>
-      </div>
+    <div className={cn(
+      "mx-auto px-6 py-8",
+      // Use full width for extraction preview (step 2), constrained width for other steps
+      currentStep === 2 ? "max-w-[1600px]" : "max-w-7xl"
+    )}>
+      {/* Page Header - Hidden during extraction preview as it has its own header */}
+      {currentStep !== 2 && (
+        <div className="mb-8">
+          <h1 className="text-2xl font-semibold text-slate-900 mb-2">Import Document</h1>
+          <p className="text-sm text-slate-600">
+            Upload a document (RFQ, RFP, MTO, BOM, PDF, or image) and let Pricer extract line items to create a
+            commercial request.
+          </p>
+        </div>
+      )}
 
       {/* Step 1: Upload */}
       {currentStep === 1 && (

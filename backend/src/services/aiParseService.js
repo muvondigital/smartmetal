@@ -488,14 +488,15 @@ function detectLineItemTables(tables) {
   }));
 
   // Step 2: Try top N scored tables with strict column mapping (multi-table acceptance)
-  const MAX_ACCEPTED_TABLES = 8;
+  // REMOVED LIMIT: Extract from ALL tables that pass scoring - don't cap at 8
+  // User requirement: Extract ALL items like a human would, not just "top 8 tables"
   const MIN_TABLE_SCORE = 10;  // Lowered from 100 to handle tables with revision columns
   const MIN_NUMERIC_ROWS = 10;
 
-  // Filter by score threshold first, try more than we'll accept (for strict mapping filter)
+  // Filter by score threshold - process ALL tables that pass the threshold
+  // No limit: Extract from all valid tables to ensure complete extraction
   const qualifiedIndices = scoringResult.ranked
     .filter(r => r.score >= MIN_TABLE_SCORE)
-    .slice(0, MAX_ACCEPTED_TABLES * 2)  // Try more than we'll accept
     .map(r => r.tableIndex);
 
   console.log(`[RFQ_TABLE_PICK] Attempting strict mapping on ${qualifiedIndices.length} scored table(s) above threshold ${MIN_TABLE_SCORE}: [${qualifiedIndices.join(', ')}]`);
@@ -724,13 +725,11 @@ function detectLineItemTables(tables) {
         });
 
         // Log acceptance (no break - continue processing)
-        console.log(`[RFQ_TABLE_ACCEPT] Accepted table ${tableIdx + 1} for extraction (${candidates.length}/${MAX_ACCEPTED_TABLES})`);
+        console.log(`[RFQ_TABLE_ACCEPT] Accepted table ${tableIdx + 1} for extraction (${candidates.length} total)`);
         
-        // Cap at MAX_ACCEPTED_TABLES
-        if (candidates.length >= MAX_ACCEPTED_TABLES) {
-          console.log(`[RFQ_TABLE_PICK] Reached MAX_ACCEPTED_TABLES (${MAX_ACCEPTED_TABLES}), stopping`);
-          break;
-        }
+        // NO LIMIT: Process ALL tables that pass scoring
+        // User requirement: Extract ALL items from document, not just first N tables
+        // Continue processing all qualified tables
       } else {
         console.log(`[RFQ_TABLE_FALLBACK] Table ${tableIdx + 1} failed strict mapping: insufficient numeric rows (${numericItemRowCount} < ${MIN_NUMERIC_ROWS}) and no boost signal, trying next candidate`);
       }
@@ -2285,19 +2284,43 @@ async function parseRfqWithGemini(structured) {
           const maxLine = lineNumbers[lineNumbers.length - 1];
           console.log(`[Tables] Line number range: ${minLine} - ${maxLine}`);
           
-          // Validate extraction completeness - check for gaps
-          const expectedCount = maxLine - minLine + 1;
-          const actualCount = lineNumbers.length;
-          if (actualCount < expectedCount) {
-            const missing = [];
-            for (let i = minLine; i <= maxLine; i++) {
-              if (!lineNumbers.includes(i)) {
-                missing.push(i);
+          // SMART validation: Detect if numbering is sequential vs sparse
+          // Sequential (RFQ/PO): 1,2,3,4... - gaps indicate missing items
+          // Sparse (MTO/BOQ): 1001, 5005, 6112A... - gaps are normal (section-based numbering)
+          const isSequentialPattern = (() => {
+            if (lineNumbers.length < 3) return false; // Need at least 3 items to detect pattern
+            
+            // Check if numbers are mostly consecutive (within 5 of each other)
+            let consecutiveCount = 0;
+            for (let i = 1; i < lineNumbers.length; i++) {
+              const gap = lineNumbers[i] - lineNumbers[i - 1];
+              if (gap >= 1 && gap <= 5) { // Consecutive or small gaps
+                consecutiveCount++;
               }
             }
-            console.warn(`[Tables] ⚠️ WARNING: Missing ${expectedCount - actualCount} line item(s): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ` ... (${missing.length} total)` : ''}`);
-          } else if (actualCount === expectedCount) {
-            console.log(`[Tables] ✓ Validation: All ${actualCount} items extracted (no gaps)`);
+            
+            // If >70% of gaps are small, it's likely sequential
+            return (consecutiveCount / (lineNumbers.length - 1)) > 0.7;
+          })();
+
+          if (isSequentialPattern) {
+            // Only validate gaps for sequential numbering (RFQ/PO)
+            const expectedCount = maxLine - minLine + 1;
+            const actualCount = lineNumbers.length;
+            if (actualCount < expectedCount) {
+              const missing = [];
+              for (let i = minLine; i <= maxLine; i++) {
+                if (!lineNumbers.includes(i)) {
+                  missing.push(i);
+                }
+              }
+              console.warn(`[Tables] ⚠️ WARNING: Missing ${expectedCount - actualCount} line item(s): ${missing.slice(0, 10).join(', ')}${missing.length > 10 ? ` ... (${missing.length} total)` : ''}`);
+            } else if (actualCount === expectedCount) {
+              console.log(`[Tables] ✓ Validation: All ${actualCount} items extracted (no gaps)`);
+            }
+          } else {
+            // Sparse numbering (MTO/BOQ) - gaps are normal, just log range
+            console.log(`[Tables] Extracted ${lineNumbers.length} items with sparse numbering (range: ${minLine} - ${maxLine}). Gaps are normal for section-based numbering.`);
           }
         } else {
           console.warn(`[Tables] WARNING: No numeric rows extracted from tables!`);

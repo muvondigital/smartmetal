@@ -200,9 +200,17 @@ export async function requestMultipart<T>(endpoint: string, formData: FormData):
         throw authError
       }
       if (response.status >= 500) {
-        throw new Error(errorData.error || errorData.details || `Server error: ${response.statusText}`)
+        // Include details if available for more specific error messages
+        const message = errorData.details
+          ? `${errorData.error}: ${errorData.details}`
+          : (errorData.error || `Server error: ${response.statusText}`)
+        throw new Error(message)
       }
-      throw new Error(errorData.error || errorData.details || `API error: ${response.statusText}`)
+      // Include details if available for more specific error messages
+      const message = errorData.details
+        ? `${errorData.error}: ${errorData.details}`
+        : (errorData.error || `API error: ${response.statusText}`)
+      throw new Error(message)
     }
 
     return response.json()

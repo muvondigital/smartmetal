@@ -199,6 +199,25 @@ function mergeChunkResults(chunkResults, chunks) {
   // Merge metadata (prefer first chunk)
   const mergedMetadata = { ...chunkResults[0].rfq_metadata };
 
+  // Check for failed chunks (CRITICAL: Detect silent data loss)
+  const failedChunks = [];
+  for (let i = 0; i < chunkResults.length; i++) {
+    if (chunkResults[i]._error) {
+      failedChunks.push({
+        chunkIndex: i,
+        pageRange: chunks[i]?.pageRange || 'unknown',
+        error: chunkResults[i]._error
+      });
+    }
+  }
+
+  if (failedChunks.length > 0) {
+    console.error(`⚠️ CRITICAL: ${failedChunks.length} chunk(s) failed during extraction!`);
+    failedChunks.forEach(fc => {
+      console.error(`   Chunk ${fc.chunkIndex + 1} (pages ${fc.pageRange}): ${fc.error}`);
+    });
+  }
+
   // Merge line items with deduplication
   const allLineItems = [];
   const seenItemKeys = new Set();
@@ -248,6 +267,11 @@ function mergeChunkResults(chunkResults, chunks) {
 
   // Aggregate warnings
   const allWarnings = chunkResults.flatMap(r => r._confidence?.validation_warnings || []);
+  
+  // Add chunk failure warnings
+  if (failedChunks.length > 0) {
+    allWarnings.push(`⚠️ CRITICAL: ${failedChunks.length} chunk(s) failed - data may be incomplete`);
+  }
 
   // Build merged result
   return {
@@ -265,7 +289,9 @@ function mergeChunkResults(chunkResults, chunks) {
       totalChunks: chunkResults.length,
       itemsPerChunk: chunkResults.map(r => r.line_items?.length || 0),
       deduplicatedItems: seenItemKeys.size - allLineItems.length,
-      chunkRanges: chunks.map(c => c.pageRange)
+      chunkRanges: chunks.map(c => c.pageRange),
+      failedChunks: failedChunks.length,
+      failedChunkDetails: failedChunks
     },
     _debug: {
       model: chunkResults[0]._debug?.model || 'gemini-2.0-flash-exp',

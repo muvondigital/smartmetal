@@ -148,7 +148,13 @@ router.post('/extract', upload.single('file'), async (req, res) => {
     });
   } catch (error) {
     console.error('[OCR Route] Extraction error:', error);
-    
+    console.error('[OCR Route] Error name:', error.name);
+    console.error('[OCR Route] Error message:', error.message);
+    console.error('[OCR Route] Error stack:', error.stack);
+    if (error.cause) {
+      console.error('[OCR Route] Error cause:', error.cause);
+    }
+
     // Handle quota exceeded errors with appropriate status code and message
     if (error.code === 'AZURE_DI_QUOTA_EXCEEDED') {
       return res.status(error.statusCode || 429).json({

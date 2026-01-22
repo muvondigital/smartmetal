@@ -475,7 +475,28 @@ async function callGPT4JSONChunked(messages, options = {}) {
   // Merge results from all chunks
   console.log('\n🔄 Merging chunk results...');
   const mergedResult = documentChunker.mergeChunkResults(chunkResults, chunks);
-  console.log(`✅ Merged extraction complete: ${mergedResult.line_items?.length || 0} total items`);
+  
+  // Log chunk processing summary
+  const successfulChunks = chunkResults.filter(r => !r._error).length;
+  const failedChunks = chunkResults.filter(r => r._error).length;
+  const totalItems = mergedResult.line_items?.length || 0;
+
+  console.log(`📊 Chunk Processing Summary:`);
+  console.log(`   Total chunks: ${chunkResults.length}`);
+  console.log(`   Successful: ${successfulChunks}`);
+  console.log(`   Failed: ${failedChunks}`);
+  console.log(`   Total items extracted: ${totalItems}`);
+
+  if (failedChunks > 0) {
+    console.error(`   ⚠️ WARNING: ${failedChunks} chunk(s) failed - extraction may be incomplete!`);
+    chunkResults.forEach((r, idx) => {
+      if (r._error) {
+        console.error(`      Chunk ${idx + 1} (${chunks[idx]?.pageRange}): ${r._error}`);
+      }
+    });
+  }
+  
+  console.log(`✅ Merged extraction complete: ${totalItems} total items`);
 
   return mergedResult;
 }
