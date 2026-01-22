@@ -68,6 +68,8 @@ review/
 # Design and docs
 design/
 docs/
+# Allow backend swagger docs (required for API)
+!backend/src/docs/
 
 # Temporary files
 nul

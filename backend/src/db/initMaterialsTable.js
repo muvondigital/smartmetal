@@ -49,6 +49,12 @@ async function initMaterialsTable() {
     await db.query(createTableSQL);
     console.log('Materials table initialized successfully');
   } catch (error) {
+    // In production, the table may already exist and be owned by a different user
+    // This is expected when using Supabase with RLS and limited permissions
+    if (error.code === '42501') { // insufficient_privilege
+      console.log('Materials table already exists (owned by another user) - skipping initialization');
+      return; // Not a fatal error, table exists and works
+    }
     console.error('Error initializing materials table:', error);
     throw error;
   }
