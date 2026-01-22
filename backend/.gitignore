@@ -36,3 +36,7 @@ nul
 # Uploaded files
 uploads/
 temp/
+
+# Ignore all markdown files
+*.md
+!README.md
