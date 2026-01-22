@@ -1282,10 +1282,23 @@ function extractLineItemsFromTable(table, candidate) {
     // DEBUG: Log every row to see what's being filtered
     console.log(`[EXTRACTION DEBUG] Row ${rowIdx}: itemCell="${itemCell}", itemNum=${itemNum}, isValid=${!isNaN(itemNum) && itemNum > 0}, hasItemColumn=${columnMap.itemIdx >= 0}`);
 
-    // Check if this is a section separator (XX) or section header
-    const descriptionCell = columnMap.descriptionIdx >= 0
-      ? (row[columnMap.descriptionIdx] || '').trim().toUpperCase()
-      : '';
+    // Get description - try detected column first, then scan row for text
+    let descriptionCell = '';
+    if (columnMap.descriptionIdx >= 0) {
+      descriptionCell = (row[columnMap.descriptionIdx] || '').trim().toUpperCase();
+    } else {
+      // No description column detected - scan row for text (usually in first few columns)
+      // Skip empty cells and look for substantial text (likely description)
+      for (let colIdx = 0; colIdx < Math.min(5, row.length); colIdx++) {
+        const cellValue = (row[colIdx] || '').trim();
+        // If cell has substantial text (not just numbers/symbols), it's likely the description
+        if (cellValue.length > 10 && /[a-zA-Z]/.test(cellValue)) {
+          descriptionCell = cellValue.toUpperCase();
+          console.log(`[RFQ_HYBRID] Found description in column ${colIdx} (not detected in columnMap): "${descriptionCell.substring(0, 50)}..."`);
+          break;
+        }
+      }
+    }
 
     // Check for group name in the GROUP column if it exists
     const groupCell = columnMap.groupIdx >= 0
