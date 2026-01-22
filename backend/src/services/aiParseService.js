@@ -1289,6 +1289,7 @@ function extractLineItemsFromTable(table, candidate) {
     } else {
       // No description column detected - scan row for text (usually in first few columns)
       // Skip empty cells and look for substantial text (likely description)
+      console.log(`[RFQ_HYBRID] No description column detected (descriptionIdx=${columnMap.descriptionIdx}), scanning row ${rowIdx} for description...`);
       for (let colIdx = 0; colIdx < Math.min(5, row.length); colIdx++) {
         const cellValue = (row[colIdx] || '').trim();
         // If cell has substantial text (not just numbers/symbols), it's likely the description
@@ -1297,6 +1298,9 @@ function extractLineItemsFromTable(table, candidate) {
           console.log(`[RFQ_HYBRID] Found description in column ${colIdx} (not detected in columnMap): "${descriptionCell.substring(0, 50)}..."`);
           break;
         }
+      }
+      if (!descriptionCell) {
+        console.log(`[RFQ_HYBRID] No description found in row ${rowIdx} after scanning`);
       }
     }
 
