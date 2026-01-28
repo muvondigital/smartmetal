@@ -9,6 +9,7 @@
 
 const { VertexAI } = require('@google-cloud/vertexai');
 const geminiApiClient = require('./geminiApiClient');
+const { repairJson, extractPartialItems, wrapItemsInStructure } = require('../../utils/jsonRepair');
 
 /**
  * Executes promises with a concurrency limit.
@@ -313,14 +314,17 @@ async function callGPT4(messages, options = {}) {
         systemInstruction: systemInstructions || undefined,
       });
 
+      // Deterministic mode for consistent extraction results
+      const isDeterministic = process.env.DETERMINISTIC_EXTRACTION === 'true';
+
       // Generate content
       const result = await model.generateContent({
         contents: contents,
         generationConfig: {
-          temperature,
+          temperature: isDeterministic ? 0 : temperature,
           maxOutputTokens: maxTokens,
-          topP: 0.95,
-          topK: 40,
+          topP: isDeterministic ? 0.1 : 0.95,
+          topK: isDeterministic ? 1 : 40,
         },
       });
 
@@ -419,14 +423,17 @@ async function callGPT4JSON(messages, options = {}) {
         systemInstruction: systemInstructions || undefined,
       });
 
+      // Deterministic mode for consistent extraction results
+      const isDeterministic = process.env.DETERMINISTIC_EXTRACTION === 'true';
+
       // Generate content with JSON response mode
       const result = await model.generateContent({
         contents: contents,
         generationConfig: {
-          temperature,
+          temperature: isDeterministic ? 0 : temperature,
           maxOutputTokens: maxTokens,
-          topP: 0.95,
-          topK: 40,
+          topP: isDeterministic ? 0.1 : 0.95,
+          topK: isDeterministic ? 1 : 40,
           responseMimeType: 'application/json', // ✅ THIS WORKS with @google-cloud/vertexai
         },
       });
@@ -486,7 +493,34 @@ async function callGPT4JSON(messages, options = {}) {
           } catch (aggressiveError) {
             console.error('❌ Aggressive repair also failed:', aggressiveError.message);
           }
-          
+
+          // Try comprehensive JSON repair utility as final fallback
+          console.warn('⚠️  Attempting comprehensive JSON repair utility...');
+          try {
+            const comprehensiveResult = repairJson(text, { verbose: true });
+            if (comprehensiveResult.success) {
+              console.log(`✅ Comprehensive repair successful - recovered ${comprehensiveResult.itemsRecovered} items using ${comprehensiveResult.strategy || 'unknown'} strategy`);
+              const repaired = comprehensiveResult.data;
+              repaired._json_repaired = true;
+              repaired._truncated = true;
+              repaired._repair_note = `Comprehensive repair recovered ${comprehensiveResult.itemsRecovered} items`;
+              return repaired;
+            }
+
+            // Final fallback: extract partial items
+            const partialItems = extractPartialItems(text);
+            if (partialItems.length > 0) {
+              console.log(`✅ Partial item extraction successful - salvaged ${partialItems.length} items`);
+              const wrapped = wrapItemsInStructure(partialItems, {});
+              wrapped._json_repaired = true;
+              wrapped._truncated = true;
+              wrapped._repair_note = `Partial extraction salvaged ${partialItems.length} items from truncated response`;
+              return wrapped;
+            }
+          } catch (comprehensiveError) {
+            console.error('❌ Comprehensive repair also failed:', comprehensiveError.message);
+          }
+
           // JSON parsing errors are NOT transient - fail fast and fallback immediately (no retries)
           console.error('❌ All JSON repair strategies failed - failing fast (no retry)');
           console.error('   Original error:', parseError.message);
@@ -686,16 +720,80 @@ async function callGPT4JSONChunked(messages, options = {}) {
   console.log(`   Failed: ${failedChunks}`);
   console.log(`   Total items extracted: ${totalItems}`);
 
+  // Retry failed chunks with smaller page ranges
   if (failedChunks > 0) {
-    console.error(`   ⚠️ WARNING: ${failedChunks} chunk(s) failed - extraction may be incomplete!`);
-    chunkResults.forEach((r, idx) => {
-      if (r._error) {
-        console.error(`      Chunk ${idx + 1} (${chunks[idx]?.pageRange}): ${r._error}`);
+    console.warn(`   ⚠️ ${failedChunks} chunk(s) failed - attempting retry with smaller chunks...`);
+
+    const failedChunkIndices = chunkResults
+      .map((r, idx) => r._error ? idx : -1)
+      .filter(idx => idx !== -1);
+
+    // Retry each failed chunk
+    for (const failedIdx of failedChunkIndices) {
+      const failedChunk = chunks[failedIdx];
+      console.log(`   🔄 Retrying chunk ${failedIdx + 1} (${failedChunk.pageRange})...`);
+
+      // Split the failed chunk in half and retry each half
+      const startPage = failedChunk.start;
+      const endPage = failedChunk.end;
+      const midPage = Math.floor((startPage + endPage) / 2);
+
+      // Only split if chunk is large enough
+      if (endPage - startPage >= 2) {
+        const subChunks = [
+          { start: startPage, end: midPage, pageRange: `${startPage + 1}-${midPage + 1}` },
+          { start: midPage + 1, end: endPage, pageRange: `${midPage + 2}-${endPage + 1}` }
+        ];
+
+        for (const subChunk of subChunks) {
+          try {
+            console.log(`      Trying sub-chunk pages ${subChunk.pageRange}...`);
+            const chunkText = documentChunker.extractTextForPageRange(text, subChunk.start, subChunk.end + 1);
+
+            if (!chunkText || chunkText.length < 100) {
+              console.log(`      Sub-chunk ${subChunk.pageRange} has insufficient content, skipping`);
+              continue;
+            }
+
+            // Create modified messages for this sub-chunk
+            const subChunkMessages = messages.map(msg => {
+              if (msg.role === 'user') {
+                const promptWithChunkText = documentChunker.createChunkPrompt(msg.content, chunkText, subChunk.pageRange);
+                return { ...msg, content: promptWithChunkText };
+              }
+              return msg;
+            });
+
+            const subResult = await callGPT4JSON(subChunkMessages, { ...callOptions, retries: 2 });
+            const itemCount = subResult.line_items?.length || 0;
+
+            if (itemCount > 0) {
+              console.log(`      ✅ Sub-chunk ${subChunk.pageRange} extracted: ${itemCount} items`);
+              // Merge recovered items into the main result
+              if (!mergedResult._recoveredItems) {
+                mergedResult._recoveredItems = [];
+              }
+              mergedResult._recoveredItems.push(...(subResult.line_items || []));
+              mergedResult.line_items = mergedResult.line_items || [];
+              mergedResult.line_items.push(...(subResult.line_items || []));
+            }
+          } catch (subError) {
+            console.error(`      ❌ Sub-chunk ${subChunk.pageRange} also failed:`, subError.message);
+          }
+        }
       }
-    });
+    }
+
+    // Update item count after retries
+    const finalItemCount = mergedResult.line_items?.length || 0;
+    const recoveredItems = mergedResult._recoveredItems?.length || 0;
+    if (recoveredItems > 0) {
+      console.log(`   ✅ Recovered ${recoveredItems} additional items from failed chunks`);
+    }
+    console.log(`📊 Final item count after retries: ${finalItemCount}`);
   }
-  
-  console.log(`✅ Merged extraction complete: ${totalItems} total items`);
+
+  console.log(`✅ Merged extraction complete: ${mergedResult.line_items?.length || 0} total items`);
 
   return mergedResult;
 }

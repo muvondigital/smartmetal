@@ -258,8 +258,11 @@ async function extractHierarchicalMto(extractedData) {
   });
 
   try {
+    // Deterministic mode for consistent extraction results
+    const isDeterministic = process.env.DETERMINISTIC_EXTRACTION === 'true';
+
     let structured = await callGPT4JSON(prompt, {
-      temperature: 0.2, // Very low temperature for accurate extraction
+      temperature: isDeterministic ? 0 : 0.2, // Use 0 for deterministic, 0.2 for default
       maxTokens: maxTokens, // Dynamic token allocation based on item count
       retries: 2 // Bounded retries (initial + 1 retry with adjusted sampling)
     });
@@ -309,12 +312,16 @@ async function extractHierarchicalMto(extractedData) {
       }
 
       // NORMALIZE FIELD NAMES: Gemini may use Item/Detail/Qty instead of our schema
+      // CRITICAL: quantity = pieces (integer), total_length_m = length in meters (decimal)
       structured.items = structured.items.map((item, idx) => ({
         line_number: item.line_number || item.item_number || item.Item || (idx + 1),
         item_type: item.item_type || item.item || item.Detail || null,
         description: item.description || item.item || item.item_type || item.Detail || '',
-        quantity: item.quantity ?? item.qty ?? item.Qty ?? null,
-        unit: item.unit || item.Unit || null,
+        // QUANTITY = pieces (integer count), NOT length in meters!
+        quantity: item.quantity ?? item.qty ?? item.Qty ?? item.round_quantity ?? null,
+        unit: item.unit || item.Unit || 'EA',
+        // Store total length separately (meters, can be decimal)
+        total_length_m: item.total_length_m ?? item.total_length ?? item.total_length_area ?? null,
         schedule: item.schedule || item.pipe_spec || item.spec || item['Pipe Spec'] || null,
         size: item.size || item.size1 || item.Size1 || item.Size || item.typ_size || null,
         size2: item.size2 || item.Size2 || null,
@@ -341,6 +348,7 @@ async function extractHierarchicalMto(extractedData) {
         console.log(`First item fields:`, Object.keys(directItems[0]));
 
         // Normalize field names from Gemini's schema to our schema
+        // CRITICAL: quantity = pieces (integer), total_length_m = length in meters (decimal)
         structured = {
           document_type: 'PIPING_LIST',
           metadata: structured.document_header || {},
@@ -349,10 +357,12 @@ async function extractHierarchicalMto(extractedData) {
             // FIX: Prefer item-level field over defaults
             item_type: item.item || item.item_type || item.Detail || null,
             description: item.item || item.item_type || item.Detail || '',
-            // NON-DESTRUCTIVE: Use nullish coalescing (??) to preserve 0, default to null (NOT 0)
-            quantity: item.qty ?? item.quantity ?? item.Qty ?? null,
-            // NON-DESTRUCTIVE: Default to null (NOT 'EA') to flag missing unit
-            unit: item.unit || item.Unit || null,
+            // QUANTITY = pieces (integer count), NOT length in meters!
+            quantity: item.qty ?? item.quantity ?? item.Qty ?? item.round_quantity ?? null,
+            // Default unit to EA (pieces)
+            unit: item.unit || item.Unit || 'EA',
+            // Store total length separately (meters, can be decimal)
+            total_length_m: item.total_length_m ?? item.total_length ?? item.total_length_area ?? null,
             schedule: item.pipe_spec || item.spec || item['Pipe Spec'] || null,
             // EXHAUSTIVE SIZE MAPPING: all case variations
             size: item.size1 || item.Size1 || item.size || item.Size || item.typ_size || null,
@@ -426,6 +436,7 @@ async function extractHierarchicalMto(extractedData) {
           console.log(`✅ Found ${extractedItems.length} items in Gemini's custom structure`);
 
           // Normalize field names (Gemini might use "Item", "Detail", "Qty" instead of our schema)
+          // CRITICAL: quantity = pieces (integer), total_length_m = length in meters (decimal)
           structured = {
             document_type: 'PIPING_LIST',
             metadata: {},
@@ -436,10 +447,12 @@ async function extractHierarchicalMto(extractedData) {
               item_type: item.Detail || item.item || item.item_type ||
                          (item._item_type && /^(FLANGE|BOLT|GASKET|PIPE|FITTING|VALVE|BEAM|PLATE|TUBULAR)$/i.test(item._item_type) ? item._item_type : null),
               description: item.Detail || item.item || item.item_type || item._item_type || '',
-              // NON-DESTRUCTIVE: Use nullish coalescing, default to null (NOT 0)
-              quantity: item.Qty ?? item.qty ?? item.quantity ?? null,
-              // NON-DESTRUCTIVE: Default to null (NOT 'EA')
-              unit: item.Unit || item.unit || null,
+              // QUANTITY = pieces (integer count), NOT length in meters!
+              quantity: item.Qty ?? item.qty ?? item.quantity ?? item.round_quantity ?? null,
+              // Default unit to EA (pieces)
+              unit: item.Unit || item.unit || 'EA',
+              // Store total length separately (meters, can be decimal)
+              total_length_m: item.total_length_m ?? item.total_length ?? item.total_length_area ?? null,
               schedule: item['Pipe Spec'] || item.pipe_spec || item.spec || null,
               // EXHAUSTIVE SIZE MAPPING: all case variations including typ_size
               size: item.Size1 || item.size1 || item.size || item.Size || item.typ_size || null,
@@ -792,14 +805,30 @@ function flattenMtoToRfqItems(mtoStructure) {
       section.subsections.forEach(subsection => {
         if (subsection.items) {
           subsection.items.forEach(item => {
-            // NON-DESTRUCTIVE: Preserve rows with zero/null quantity + add warning
-            // Do NOT skip/drop rows - let downstream validation handle it
-            const derivedQty = item.total_length_area ?? null;
-            const qty = derivedQty ?? item.round_quantity ?? item.quantity ?? null;
+            // CRITICAL FIX: Quantity = number of PIECES, NOT total length in meters!
+            // Priority order:
+            // 1. quantity (explicit piece count from AI)
+            // 2. round_quantity (from "Round Qty" column)
+            // 3. nett_quantity (from "Nett Qty" column)
+            // DO NOT use total_length_area - that's LENGTH in meters, not piece count!
+            const qty = item.quantity ?? item.round_quantity ?? item.nett_quantity ?? null;
+
+            // Store total length separately (for reference, not as quantity)
+            const totalLengthM = item.total_length_area ?? item.total_length_m ?? null;
+
+            // Validate: Flag if quantity looks like a length value
             const hasQuantityIssue = (qty === 0 || qty === null);
+            const quantityLooksLikeLength = qty !== null && (
+              qty > 500 ||                           // Unusually high for piece count
+              (qty !== Math.floor(qty) && qty > 50)  // Decimal + large = likely meters
+            );
 
             if (hasQuantityIssue) {
               console.warn(`[Flatten] ⚠️ Item ${item.item_number || lineNumber} has ${qty === null ? 'missing' : 'zero'} quantity - preserving with warning`);
+            }
+
+            if (quantityLooksLikeLength) {
+              console.warn(`[Flatten] ⚠️ Item ${item.item_number || lineNumber} quantity=${qty} looks like length (meters), not pieces - may be extraction error`);
             }
 
             const description = item.description || '';
@@ -846,10 +875,95 @@ function flattenMtoToRfqItems(mtoStructure) {
   return applyCableTrayOverrides(flatItems);
 }
 
+/**
+ * Validates and fixes quantity values that look like length measurements
+ * This catches cases where the AI extracted total_length_m as quantity
+ *
+ * @param {Array} items - Array of extracted items
+ * @returns {Object} - { items: fixedItems, warnings: Array, fixedCount: number }
+ */
+function validateAndFixQuantities(items) {
+  if (!Array.isArray(items)) {
+    return { items: [], warnings: [], fixedCount: 0 };
+  }
+
+  const warnings = [];
+  let fixedCount = 0;
+
+  const fixedItems = items.map((item, idx) => {
+    const qty = item.quantity;
+    const totalLength = item.total_length_m || item.total_length_area;
+    const unit = (item.unit || '').toUpperCase();
+
+    // Skip if no quantity
+    if (qty === null || qty === undefined) {
+      return item;
+    }
+
+    // Heuristics to detect if quantity looks like a length value:
+    // 1. Unit is "M" (meters) - definitely a length, not pieces
+    // 2. Quantity is > 500 and has significant decimal places (e.g., 428.91)
+    // 3. Quantity is much larger than total_length (should be opposite for pieces)
+
+    const isUnitMeters = unit === 'M' || unit === 'MTR' || unit === 'METER' || unit === 'METERS';
+    const hasSignificantDecimals = qty !== Math.floor(qty) && (qty % 1) >= 0.01;
+    const isVeryLarge = qty > 500;
+    const quantityLooksLikeLength = (
+      isUnitMeters ||
+      (isVeryLarge && hasSignificantDecimals) ||
+      (totalLength && qty > 50 && qty > totalLength * 5) // qty is suspiciously larger than length
+    );
+
+    if (quantityLooksLikeLength) {
+      const warning = {
+        itemIndex: idx,
+        lineNumber: item.line_number,
+        description: item.description?.substring(0, 50),
+        originalQuantity: qty,
+        originalUnit: unit,
+        reason: isUnitMeters ? 'unit_is_meters' :
+                (isVeryLarge && hasSignificantDecimals) ? 'large_decimal_value' :
+                'quantity_larger_than_length'
+      };
+      warnings.push(warning);
+
+      // AUTO-FIX: If we have total_length and it looks like a reasonable piece count,
+      // swap quantity and total_length
+      if (totalLength && totalLength > 0 && totalLength < 500 && totalLength === Math.floor(totalLength)) {
+        console.log(`[Quantity Fix] Item ${item.line_number}: Swapping quantity=${qty} ↔ total_length=${totalLength} (qty looks like length)`);
+        fixedCount++;
+        return {
+          ...item,
+          quantity: totalLength,
+          total_length_m: qty,
+          unit: 'EA',
+          _quantity_fixed: {
+            original_quantity: qty,
+            original_unit: unit,
+            reason: warning.reason
+          }
+        };
+      }
+
+      // Can't auto-fix, just log warning
+      console.warn(`[Quantity Warning] Item ${item.line_number}: quantity=${qty} looks like length (${warning.reason}), but no suitable replacement found`);
+    }
+
+    return item;
+  });
+
+  if (warnings.length > 0) {
+    console.log(`[Quantity Validation] Found ${warnings.length} suspicious quantities, auto-fixed ${fixedCount}`);
+  }
+
+  return { items: fixedItems, warnings, fixedCount };
+}
+
 module.exports = {
   detectMtoDocument,
   extractHierarchicalMto,
   parseMaterialSpec,
   verifyWeightCalculations,
-  flattenMtoToRfqItems
+  flattenMtoToRfqItems,
+  validateAndFixQuantities
 };

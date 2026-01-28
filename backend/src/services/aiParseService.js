@@ -1,5 +1,6 @@
 const { initializeClient, callGPT4JSON } = require('./gcp/genaiClient');
 const { scoreTableCandidate, pickBestTable } = require('./rfqExtraction/tableScoring');
+const { repairJson, extractPartialItems, wrapItemsInStructure } = require('../utils/jsonRepair');
 
 /**
  * Sanitizes JSON text by removing comments and other non-JSON formatting
@@ -316,7 +317,27 @@ function extractJsonFromText(text) {
       console.error('[JSON Extract] Error during JSON repair attempt:', repairError.message);
     }
 
-    // Last resort: log what we have for debugging
+    // Last resort: Use comprehensive JSON repair utility
+    console.log('[JSON Extract] Trying comprehensive JSON repair utility...');
+    try {
+      const repairResult = repairJson(trimmed, { verbose: true });
+      if (repairResult.success) {
+        console.log(`[JSON Extract] ✓ JSON repair utility succeeded! Recovered ${repairResult.itemsRecovered} items using ${repairResult.strategy || 'unknown'} strategy`);
+        return repairResult.data;
+      }
+
+      // Final fallback: Try to extract partial items
+      console.log('[JSON Extract] Trying partial item extraction...');
+      const partialItems = extractPartialItems(trimmed);
+      if (partialItems.length > 0) {
+        console.log(`[JSON Extract] ✓ Extracted ${partialItems.length} partial items from truncated response`);
+        return wrapItemsInStructure(partialItems, {});
+      }
+    } catch (repairUtilError) {
+      console.error('[JSON Extract] JSON repair utility failed:', repairUtilError.message);
+    }
+
+    // Log debugging info
     console.error('[JSON Extract] All extraction methods failed');
     console.error('[JSON Extract] Text length:', trimmed.length);
     console.error('[JSON Extract] First 500 chars:', trimmed.substring(0, 500));
@@ -385,8 +406,8 @@ function isDescriptionColumn(header) {
 }
 
 /**
- * Detects if a column header matches common quantity patterns
- * MTO-AWARE: Recognizes "Total As Drawing Details" and similar aggregate quantity columns
+ * Detects if a column header matches common quantity patterns (number of PIECES, not length)
+ * IMPORTANT: Quantity = number of pieces (PCS, EA). NOT meters or length.
  * @param {string} header - Column header text
  * @returns {boolean}
  */
@@ -394,9 +415,22 @@ function isQuantityColumn(header) {
   if (!header) return false;
   const normalized = normalizeHeader(header);
   // Match: qty, quantity, quantities, round quantity, rounded quantity, round qty, pcs, total quantity, nett quantity, net quantity, purchased quantity, erected quantity
-  // MTO PATTERN: Also match "Total As Drawing Details", "Total as Drawing", "Overall Total", etc.
-  // These columns aggregate quantities from multiple drawing/project columns
-  return /^(qty|quantity|quantities|round\s*quantity|rounded\s*quantity|round\s*qty|pcs|total\s*quantity|nett\s*quantity|net\s*quantity|purchased\s*quantity|erected\s*quantity|nett\s*qty|net\s*qty|total\s*as\s*drawing|total\s*as\s*drawing\s*details|overall\s*total|estimated\s*overall\s*total|total\s*qty|total)$/.test(normalized);
+  // NOTE: "Total As Drawing Details", "Overall Total" are LENGTH columns, NOT quantity - moved to isLengthColumn()
+  return /^(qty|quantity|quantities|round\s*quantity|rounded\s*quantity|round\s*qty|pcs|total\s*quantity|nett\s*quantity|net\s*quantity|purchased\s*quantity|erected\s*quantity|nett\s*qty|net\s*qty|total\s*qty)$/.test(normalized);
+}
+
+/**
+ * Detects if a column header matches common LENGTH patterns (meters, not pieces)
+ * MTO documents have LENGTH columns showing total meters required
+ * @param {string} header - Column header text
+ * @returns {boolean}
+ */
+function isLengthColumn(header) {
+  if (!header) return false;
+  const normalized = normalizeHeader(header);
+  // Match length-related headers: "Total As Drawing Details", "Overall Total", "Required Length", "Total Length", etc.
+  // These contain LENGTH in meters, not quantity of pieces
+  return /^(total\s*as\s*drawing|total\s*as\s*drawing\s*details|overall\s*total|estimated\s*overall\s*total|total\s*length|required\s*length|length|total\s*m|total\s*meter|total\s*meters|req\s*length|req\.\s*length)$/.test(normalized);
 }
 
 /**
@@ -539,6 +573,7 @@ function detectLineItemTables(tables) {
       itemIdx: -1,
       descriptionIdx: -1,
       quantityIdx: -1,
+      lengthIdx: -1, // For MTO documents: total length in meters (separate from quantity/pieces)
       unitIdx: -1,
       specIdx: -1,
       size1Idx: -1,
@@ -565,9 +600,14 @@ function detectLineItemTables(tables) {
       } else if (isDescriptionColumn(cell)) {
         columnMap.descriptionIdx = colIdx;
         console.log(`[RFQ_COLUMN_MAP] Table ${tableIdx + 1} - Column ${colIdx} "${cell}" (normalized: "${normalized}") -> descriptionIdx`);
+      } else if (isLengthColumn(cell)) {
+        // IMPORTANT: Check for LENGTH column BEFORE quantity - they're often confused
+        // Length = total meters, Quantity = number of pieces
+        columnMap.lengthIdx = colIdx;
+        console.log(`[RFQ_COLUMN_MAP] Table ${tableIdx + 1} - Column ${colIdx} "${cell}" (normalized: "${normalized}") -> lengthIdx (METERS, not pieces)`);
       } else if (isQuantityColumn(cell)) {
         columnMap.quantityIdx = colIdx;
-        console.log(`[RFQ_COLUMN_MAP] Table ${tableIdx + 1} - Column ${colIdx} "${cell}" (normalized: "${normalized}") -> quantityIdx`);
+        console.log(`[RFQ_COLUMN_MAP] Table ${tableIdx + 1} - Column ${colIdx} "${cell}" (normalized: "${normalized}") -> quantityIdx (PIECES)`);
       } else if (isUnitColumn(cell)) {
         columnMap.unitIdx = colIdx;
         console.log(`[RFQ_COLUMN_MAP] Table ${tableIdx + 1} - Column ${colIdx} "${cell}" (normalized: "${normalized}") -> unitIdx`);
@@ -1450,6 +1490,17 @@ function extractLineItemsFromTable(table, candidate) {
       ? (row[columnMap.revisionIdx] || '').trim()
       : null;
 
+    // Extract length (meters) from dedicated length column (separate from quantity/pieces)
+    let totalLength = null;
+    if (columnMap.lengthIdx >= 0) {
+      const lengthStr = (row[columnMap.lengthIdx] || '').trim();
+      if (lengthStr) {
+        totalLength = parseFloat(lengthStr.replace(/,/g, ''));
+        if (isNaN(totalLength)) totalLength = null;
+        console.log(`[RFQ_HYBRID] Row ${rowIdx}: Extracted length from lengthIdx ${columnMap.lengthIdx}: ${totalLength} m`);
+      }
+    }
+
     const group = columnMap.groupIdx >= 0
       ? (row[columnMap.groupIdx] || '').trim()
       : null;
@@ -1533,6 +1584,7 @@ function extractLineItemsFromTable(table, candidate) {
       line_number: effectiveItemNum,
       description: description || null,
       quantity: quantity,
+      total_length: totalLength, // Length in meters (separate from quantity/pieces)
       unit: unit || null,
       spec: spec || null,
       size: sizeDisplay, // Combined size for display
@@ -1569,6 +1621,7 @@ function extractLineItemsFromTable(table, candidate) {
       line_number: lineItems[0].line_number,
       description: lineItems[0].description?.substring(0, 50),
       quantity: lineItems[0].quantity,
+      total_length: lineItems[0].total_length,
       unit: lineItems[0].unit,
       extra_fields: lineItems[0].extra_fields,
     }));
@@ -1577,6 +1630,7 @@ function extractLineItemsFromTable(table, candidate) {
         line_number: lineItems[1].line_number,
         description: lineItems[1].description?.substring(0, 50),
         quantity: lineItems[1].quantity,
+        total_length: lineItems[1].total_length,
         unit: lineItems[1].unit,
         extra_fields: lineItems[1].extra_fields,
       }));
@@ -1850,6 +1904,38 @@ CRITICAL: Your line_items array MUST contain exactly ${rawItems.length} entries,
    - If no size information exists, return null (do not guess)
    - If size format is unclear, preserve original format exactly as written
 
+   **CRITICAL RULES FOR MTO DOCUMENTS (Material Take-Off) - READ VERY CAREFULLY**:
+
+   ⚠️ QUANTITY vs LENGTH - THE MOST COMMON EXTRACTION ERROR ⚠️
+
+   MTO tables have TWO DIFFERENT numeric columns that are often confused:
+
+   1. QUANTITY = NUMBER OF PIECES (how many items)
+      - Column headers: "Round Qty", "Qty", "Quantity", "PCS", "Nett Qty", "Pieces", "No. of Pcs"
+      - Usually small INTEGERS: 4, 18, 36, 324
+      - Unit should be "EA", "PCS", or "SET"
+      - Example: "36" in "Round Qty" column = 36 pieces of beam
+
+   2. LENGTH = TOTAL METERS (how long in total)
+      - Column headers: "Total As Drawing", "Overall Total", "Total Length", "Required Length", "Req Length"
+      - Usually DECIMAL numbers: 428.91, 50.63, 259.85
+      - Unit is "m" or "M" (meters)
+      - Example: "428.91" in "Total As Drawing Details" column = 428.91 meters total length
+
+   🚫 COMMON MISTAKE TO AVOID:
+   If you see a value like "428.91" with unit "m", that is LENGTH not QUANTITY!
+   Look for a separate column with the piece count (often "Round Qty" = 36).
+
+   ✅ CORRECT: { "quantity": 36, "unit": "EA", "total_length_m": 428.91 }
+   ❌ WRONG:   { "quantity": 428.91, "unit": "m" }  <-- This is length, not quantity!
+
+   - For tubulars: dimensions are OD x THICKNESS (e.g., "2338X40" = 2338mm OD × 40mm thick)
+   - TUBULAR DIMENSION VALIDATION:
+     * Typical OD range: 100mm to 3000mm (rarely 4+ digits)
+     * Typical thickness: 5mm to 100mm
+     * If you see 5-digit OD like "30000", check if it should be "3000.0" or "3000" (OCR error)
+     * Common OCR errors: "3000.0" → "30000", "2338.0" → "23380" (decimal point lost)
+
 5. **PRESERVE EXACT VALUES**:
    - Preserve the item number exactly as it appears in the Item column.
    - Preserve exact units/measurements (EA, m, mm, inch, LENGTH, PCS, KG, TON, etc.).
@@ -1899,7 +1985,7 @@ FORBIDDEN:
 - ❌ Partial output: Always include ALL line_items
 
 CORRECT FORMAT (respond with JSON exactly like this):
-  
+
   {
     "rfq_metadata": {
       "client_name": "...",
@@ -1911,30 +1997,26 @@ CORRECT FORMAT (respond with JSON exactly like this):
     },
     "line_items": [
       {
-        "item_no": 1,
-        "rfq_reference": "...",
-        "description": "ASTM A106 GR.B SCH 40 2" SEAMLESS PIPE",
-        "material": "ASTM A106 GR.B",
-        "od_mm": null,
-        "tk_mm": null,
-        "quantity": 10,
-        "unit": "M",
-        "unit_weight_kg": null,
-        "total_weight_kg": null,
-        "notes": null
+        "line_number": 1,
+        "description": "Beam W36X194 Rolled Section (TYPE I)",
+        "quantity": 36,
+        "unit": "PCS",
+        "spec": "S355J2",
+        "size1": "W36X194",
+        "size2": null,
+        "notes": "Portion: 3, Shipment: 1. Total Length: 428.91 m",
+        "revision": null
       },
       {
-        "item_no": 2,
-        "rfq_reference": "...",
-        "description": "2" SCH10 SS316L seamless pipe",
-        "material": "SS316L",
-        "od_mm": null,
-        "tk_mm": null,
-        "quantity": 5,
-        "unit": "M",
-        "unit_weight_kg": null,
-        "total_weight_kg": null,
-        "notes": null
+        "line_number": 2,
+        "description": "TUBULAR 2338X40 API 2W GR.50 PSL 2",
+        "quantity": 4,
+        "unit": "EA",
+        "spec": "API 2W GR.50 PSL 2",
+        "size1": "2338X40",
+        "size2": null,
+        "notes": "Total Length: 50.63 m",
+        "revision": null
       }
     ]
   }
@@ -1976,6 +2058,91 @@ function calculateMaxTokensForRfq(lineItemsCount) {
 
   // Clamp to safe maximum.
   return Math.min(dynamic, MAX_COMPLETION_TOKENS);
+}
+
+/**
+ * Corrects common OCR errors in tubular dimensions
+ * Common error: decimal point is lost, causing "3000.0" to become "30000"
+ * This function detects and corrects such patterns
+ * @param {string} description - Item description containing dimensions
+ * @returns {Object} { corrected: string, wasFixed: boolean, originalDim: string, fixedDim: string }
+ */
+function correctTubularDimensions(description) {
+  if (!description) return { corrected: description, wasFixed: false };
+
+  let corrected = description;
+  let wasFixed = false;
+  let originalDim = null;
+  let fixedDim = null;
+
+  // Pattern 1: 5-digit number followed by X and 2-3 digit number (e.g., "30000X25", "23380X40")
+  // These should typically be 4-digit like "3000X25" or "2338X40"
+  const regex5 = /(\d{5})([xX×\*])(\d{1,3})/g;
+  const matches5 = description.matchAll(regex5);
+  for (const match of matches5) {
+    const fiveDigit = match[1];
+    const separator = match[2];
+    const thickness = match[3];
+
+    if (fiveDigit.endsWith('0')) {
+      const correctedDim = fiveDigit.slice(0, -1);
+      const fullOriginal = `${fiveDigit}${separator}${thickness}`;
+      const fullCorrected = `${correctedDim}${separator}${thickness}`;
+      const correctedOD = parseInt(correctedDim, 10);
+
+      if (correctedOD >= 100 && correctedOD <= 4000) {
+        corrected = corrected.replace(fullOriginal, fullCorrected);
+        wasFixed = true;
+        originalDim = fullOriginal;
+        fixedDim = fullCorrected;
+        console.log(`[Dimension Fix] Corrected "${fullOriginal}" → "${fullCorrected}" (5-digit OCR error)`);
+      }
+    }
+  }
+
+  // Pattern 2: 4-digit number ending in 0 followed by X (e.g., "5080X15.9", "4060X12.7")
+  // These MIGHT be 3-digit like "508X15.9", "406X12.7" BUT must exclude valid large ODs!
+  // CRITICAL: 4-digit ODs from 1000-3000mm are VALID for large structural tubulars
+  //
+  // Valid large tubular ODs that should NOT be corrected:
+  // 1016, 1066, 1080, 1100, 1118, 1219, 1320, 1371, 1828, 2134, 2338, etc.
+  //
+  // OCR error patterns to correct:
+  // 5080 → 508 (decimal point lost from 508.0)
+  // 4060 → 406 (decimal point lost from 406.0)
+  // 7620 → 762 (decimal point lost from 762.0)
+  //
+  // Heuristic: Only correct if the 4-digit number is UNLIKELY to be a real pipe size
+  // - Numbers in 1000-3000 range are likely valid large ODs
+  // - Numbers > 3000 ending in 0 are likely OCR errors (e.g., 5080, 7620)
+  const regex4 = /(\d{4})([xX×\*])(\d{1,3}\.?\d*)/g;
+  const matches4 = corrected.matchAll(regex4);
+  for (const match of matches4) {
+    const fourDigit = match[1];
+    const separator = match[2];
+    const thickness = match[3];
+    const originalOD = parseInt(fourDigit, 10);
+
+    // Only fix if it ends in 0 AND original is > 3000 (unlikely to be a real pipe OD)
+    // Pipes/tubes over 3000mm OD are extremely rare; likely OCR errors
+    if (fourDigit.endsWith('0') && originalOD > 3000) {
+      const correctedDim = fourDigit.slice(0, -1);
+      const correctedOD = parseInt(correctedDim, 10);
+
+      // Valid pipe/tube OD range is typically 100-999mm for 3-digit ODs
+      if (correctedOD >= 100 && correctedOD <= 999) {
+        const fullOriginal = `${fourDigit}${separator}${thickness}`;
+        const fullCorrected = `${correctedDim}${separator}${thickness}`;
+        corrected = corrected.replace(fullOriginal, fullCorrected);
+        wasFixed = true;
+        originalDim = originalDim || fullOriginal;
+        fixedDim = fixedDim || fullCorrected;
+        console.log(`[Dimension Fix] Corrected "${fullOriginal}" → "${fullCorrected}" (4-digit OCR error)`);
+      }
+    }
+  }
+
+  return { corrected, wasFixed, originalDim, fixedDim };
 }
 
 /**
@@ -2062,7 +2229,11 @@ function validateAndNormalizeLineItems(lineItems, tableAnalysis = null) {
       // Parse and validate quantity
       let parsedQuantity = typeof item.quantity === 'number' ? item.quantity : (item.quantity ? parseFloat(item.quantity) : null);
 
-      // CRITICAL FIX: Detect and correct digit duplication in quantity
+      // Track if this looks like length (meters) rather than quantity (pieces)
+      let isLikelyLength = false;
+      const itemUnit = (item.unit || '').toLowerCase().trim();
+
+      // CRITICAL FIX #1: Detect and correct digit duplication in quantity
       // Common OCR errors: 44 → 4, 22 → 2, 11 → 1, 55 → 5 (when original was single digit)
       if (parsedQuantity && parsedQuantity > 10) {
         const qtyStr = String(parsedQuantity);
@@ -2079,19 +2250,106 @@ function validateAndNormalizeLineItems(lineItems, tableAnalysis = null) {
         }
       }
 
+      // CRITICAL FIX #2: Detect when quantity field contains length (meters) instead of pieces
+      // MTO documents often have both: Qty (pieces) and Length (meters)
+      // If unit is meters and quantity has decimals, it's likely length not quantity
+      if (parsedQuantity !== null && (itemUnit === 'm' || itemUnit === 'meter' || itemUnit === 'meters')) {
+        // Check if value has decimals (typical for length measurements)
+        const hasDecimals = parsedQuantity !== Math.floor(parsedQuantity);
+        // Check if value is large with decimals (like 428.91, 259.85) - typical for total length
+        if (hasDecimals || parsedQuantity > 100) {
+          isLikelyLength = true;
+          console.warn(`[Quantity/Length] Line ${lineNumber}: Value ${parsedQuantity} ${itemUnit} appears to be LENGTH not QUANTITY (pieces)`);
+
+          // CRITICAL FIX #2b: Extract actual quantity (pieces) from notes field
+          // The AI often puts "Pcs: 36" or "Quantity (pcs): 36" in the notes
+          const notesStr = item.notes || '';
+          const pcsMatch = notesStr.match(/(?:Pcs|pcs|PCS|Pieces|pieces|Quantity\s*\(pcs\)|Qty\s*\(pcs\))[\s:]*(\d+)/i);
+
+          if (pcsMatch) {
+            const extractedPcs = parseInt(pcsMatch[1], 10);
+            console.log(`[Quantity/Length FIX] Line ${lineNumber}: Extracted actual quantity ${extractedPcs} pcs from notes (was ${parsedQuantity} m)`);
+
+            // Store the length value in total_length field, use extracted pcs as quantity
+            item.total_length = parsedQuantity; // Save the length
+            parsedQuantity = extractedPcs; // Use the actual piece count
+            isLikelyLength = false; // No longer flagged - we fixed it
+
+            if (confidenceData.warnings) {
+              confidenceData.warnings.push(`Quantity corrected from ${item.quantity} m (length) to ${extractedPcs} pcs (from notes)`);
+            }
+          } else {
+            // Couldn't find pcs in notes - flag for review
+            if (confidenceData.warnings) {
+              confidenceData.warnings.push(`Value ${parsedQuantity} ${itemUnit} may be total length, not quantity of pieces`);
+            }
+            confidenceData.fields.quantity = Math.min(confidenceData.fields.quantity || 0.9, 0.5); // Lower confidence significantly
+          }
+        }
+      }
+
+      // CRITICAL FIX #3: Validate dimensions in description for OCR errors
+      // Detect suspiciously large dimensions like "30000x25" which should be "3000.0x25" or "3000x25"
+      const description = item.description || '';
+      const dimMatch = description.match(/(\d{5,})[\s]*[xX×\*][\s]*(\d+)/);
+      if (dimMatch) {
+        const largeDim = dimMatch[1];
+        // Check if this might be a decimal point error (e.g., 30000 should be 3000.0)
+        if (largeDim.endsWith('0') && largeDim.length === 5) {
+          const correctedDim = largeDim.slice(0, -1) + '.' + largeDim.slice(-1);
+          console.warn(`[Dimension Validation] Line ${lineNumber}: Suspicious dimension ${largeDim} - may be ${correctedDim} (missing decimal point)`);
+          if (confidenceData.warnings) {
+            confidenceData.warnings.push(`Dimension ${largeDim} may be OCR error - could be ${correctedDim.replace(/\.0$/, '')} or ${correctedDim}`);
+          }
+          // Don't auto-correct, but flag for review
+          confidenceData.fields.description = Math.min(confidenceData.fields.description || 0.85, 0.6);
+        }
+      }
+
+      // CRITICAL FIX #4: Auto-correct tubular dimensions with OCR errors
+      // Apply the correction to both description and size1 fields
+      let correctedDescription = item.description || null;
+      let correctedSize1 = item.size1 || null;
+
+      if (correctedDescription) {
+        const descFix = correctTubularDimensions(correctedDescription);
+        if (descFix.wasFixed) {
+          correctedDescription = descFix.corrected;
+          if (confidenceData.warnings) {
+            confidenceData.warnings.push(`Description dimension auto-corrected: ${descFix.originalDim} → ${descFix.fixedDim}`);
+          }
+        }
+      }
+
+      if (correctedSize1) {
+        const sizeFix = correctTubularDimensions(correctedSize1);
+        if (sizeFix.wasFixed) {
+          correctedSize1 = sizeFix.corrected;
+          if (confidenceData.warnings) {
+            confidenceData.warnings.push(`Size1 dimension auto-corrected: ${sizeFix.originalDim} → ${sizeFix.fixedDim}`);
+          }
+        }
+      }
+
+      // Extract total_length (for MTO documents where length is separate from quantity)
+      const parsedTotalLength = typeof item.total_length === 'number'
+        ? item.total_length
+        : (item.total_length ? parseFloat(item.total_length) : null);
+
       validated.push({
         line_number: lineNumber,
         item_no: lineNumber,
-        description: item.description || null,
+        description: correctedDescription,
         material: item.material || item.material_spec || null,
         od_mm: item.od_mm || null,
         tk_mm: item.tk_mm || null,
         quantity: parsedQuantity,
+        total_length: parsedTotalLength, // Length in meters (separate from quantity/pieces)
         unit: item.unit || null,
         unit_weight_kg: item.unit_weight_kg || null,
         total_weight_kg: item.total_weight_kg || null,
         spec: item.spec || null,
-        size1: item.size1 || null,
+        size1: correctedSize1,
         size2: item.size2 || null,
         notes: item.notes || null,
         revision: item.revision || null,
@@ -2101,7 +2359,7 @@ function validateAndNormalizeLineItems(lineItems, tableAnalysis = null) {
         // Preserve any additional fields
         ...Object.fromEntries(
           Object.entries(item).filter(([key]) =>
-            !['line_number', 'item_no', 'description', 'material', 'material_spec', 'od_mm', 'tk_mm', 'quantity', 'unit', 'unit_weight_kg', 'total_weight_kg', 'spec', 'size1', 'size2', 'notes', 'revision', 'raw_row', '_confidence'].includes(key)
+            !['line_number', 'item_no', 'description', 'material', 'material_spec', 'od_mm', 'tk_mm', 'quantity', 'total_length', 'unit', 'unit_weight_kg', 'total_weight_kg', 'spec', 'size1', 'size2', 'notes', 'revision', 'raw_row', '_confidence'].includes(key)
           )
         ),
       });
@@ -2432,8 +2690,11 @@ async function parseRfqWithGemini(structured) {
     // Smart token allocation:
     // 1. If we have extracted line items, use dynamic calculation
     // 2. If no line items BUT multiple tables detected (2+), assume it's a large MTO/RFQ that needs max tokens
-    // 3. Otherwise, use default for simple text-only parsing
+    // 3. If text is very long (>30k chars), assume large document needing more tokens
+    // 4. Otherwise, use default for simple text-only parsing
     let maxTokens;
+    const textLength = structured?.text?.length || 0;
+
     if (lineItemsCount > 0) {
       maxTokens = calculateMaxTokensForRfq(lineItemsCount);
       console.log(`[AI Parse] Token planning: Using calculated tokens based on ${lineItemsCount} line items`);
@@ -2441,6 +2702,12 @@ async function parseRfqWithGemini(structured) {
       // Use full capacity for multi-table documents (Gemini 3 Pro = 60K, Gemini 2.0 Flash = 7.5K)
       maxTokens = calculateMaxTokensForRfq(200); // Assume ~200 items for large table-based docs
       console.log(`[AI Parse] Token planning: Multiple tables detected (${tableCount}) with no line items - using ${maxTokens} tokens`);
+    } else if (textLength > 30000) {
+      // Large text document without detected tables - likely an MTO that needs full extraction
+      // Estimate ~1 item per 200 chars of text content
+      const estimatedItems = Math.min(300, Math.ceil(textLength / 200));
+      maxTokens = calculateMaxTokensForRfq(estimatedItems);
+      console.log(`[AI Parse] Token planning: Large text document (${textLength} chars) - estimating ${estimatedItems} items, using ${maxTokens} tokens`);
     } else {
       maxTokens = calculateMaxTokensForRfq(50); // Default for text-only parsing
       console.log(`[AI Parse] Token planning: Single/no table detected - using default tokens`);

@@ -99,15 +99,18 @@ async function callGPT4(messages, options = {}) {
       // Convert messages to Gemini format
       const { systemInstruction, contents } = convertMessagesToGeminiFormat(messages);
 
+      // Deterministic mode for consistent extraction results
+      const isDeterministic = process.env.DETERMINISTIC_EXTRACTION === 'true';
+
       // Get generative model
       const generativeModel = client.getGenerativeModel({
         model: modelName,
         systemInstruction,
         generationConfig: {
-          temperature,
+          temperature: isDeterministic ? 0 : temperature,
           maxOutputTokens: maxTokens,
-          topP: 0.95,
-          topK: 40,
+          topP: isDeterministic ? 0.1 : 0.95,
+          topK: isDeterministic ? 1 : 40,
         },
       });
 
@@ -186,15 +189,18 @@ async function callGPT4JSON(messages, options = {}) {
         ]
       };
 
+      // Deterministic mode for consistent extraction results
+      const isDeterministic = process.env.DETERMINISTIC_EXTRACTION === 'true';
+
       // Get generative model with JSON response mode
       const generativeModel = client.getGenerativeModel({
         model: modelName,
         systemInstruction: jsonSystemInstruction,
         generationConfig: {
-          temperature,
+          temperature: isDeterministic ? 0 : temperature,
           maxOutputTokens: maxTokens,
-          topP: 0.95,
-          topK: 40,
+          topP: isDeterministic ? 0.1 : 0.95,
+          topK: isDeterministic ? 1 : 40,
           responseMimeType: 'application/json', // Force JSON response
         },
       });

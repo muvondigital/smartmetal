@@ -335,7 +335,7 @@ async function extractTablesFromPDFWithPreScreening(pdfBuffer) {
   const os = require('os');
 
   console.log('🔍 Running intelligent page detection...');
-  const tempFilePath = path.join(os.tmpdir(), );
+  const tempFilePath = path.join(os.tmpdir(), `prescreener-${Date.now()}.pdf`);
   fs.writeFileSync(tempFilePath, pdfBuffer);
 
   const preScreener = new PagePreScreener();

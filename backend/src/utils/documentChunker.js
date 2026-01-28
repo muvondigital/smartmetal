@@ -11,6 +11,8 @@
  * - Merge results with deduplication and sequencing
  */
 
+const { validateAndFixQuantities } = require('./quantityValidator');
+
 /**
  * Configuration for chunking strategy
  */
@@ -218,36 +220,78 @@ function mergeChunkResults(chunkResults, chunks) {
     });
   }
 
-  // Merge line items with deduplication
-  const allLineItems = [];
-  const seenItemKeys = new Set();
+  // Merge line items with CHUNK-AWARE deduplication
+  // CRITICAL: Only merge items from ADJACENT chunks (overlapping pages)
+  // Items from non-adjacent chunks are separate line items, not duplicates
+  let duplicateCount = 0;
 
+  // First pass: collect all items with their chunk indices
+  const allItemsWithChunks = [];
   for (let i = 0; i < chunkResults.length; i++) {
     const result = chunkResults[i];
     const chunk = chunks[i];
     const items = result.line_items || [];
 
     for (const item of items) {
-      // Create unique key for deduplication
-      const itemKey = createItemKey(item);
-
-      // Skip if we've seen this exact item before (from overlap)
-      if (seenItemKeys.has(itemKey)) {
-        continue;
-      }
-
-      seenItemKeys.add(itemKey);
-
-      // Add chunk metadata to item
-      allLineItems.push({
-        ...item,
-        _chunk_source: {
-          chunkIndex: i,
-          pageRange: chunk.pageRange
-        }
+      allItemsWithChunks.push({
+        item: { ...item, _chunk_source: { chunkIndex: i, pageRange: chunk.pageRange } },
+        chunkIndex: i,
+        pageRange: chunk.pageRange,
+        itemKey: createItemKey(item)
       });
     }
   }
+
+  // Second pass: deduplicate only adjacent chunks
+  // Group by itemKey, then within each group, merge only adjacent chunk items
+  const itemsByKey = new Map();
+
+  for (const entry of allItemsWithChunks) {
+    const { item, chunkIndex, pageRange, itemKey } = entry;
+
+    if (!itemsByKey.has(itemKey)) {
+      itemsByKey.set(itemKey, []);
+    }
+
+    const existingGroup = itemsByKey.get(itemKey);
+
+    // Check if any existing item in the group is from an adjacent chunk
+    let merged = false;
+    for (let j = 0; j < existingGroup.length; j++) {
+      const existing = existingGroup[j];
+      // Adjacent chunks have indices that differ by 1 (they share overlapping pages)
+      if (Math.abs(existing.chunkIndex - chunkIndex) <= 1) {
+        // Merge with this item (true duplicate from overlapping region)
+        existingGroup[j] = {
+          item: mergeItems(existing.item, item),
+          chunkIndex: Math.max(existing.chunkIndex, chunkIndex),
+          pageRange: pageRange
+        };
+        merged = true;
+        duplicateCount++;
+        console.log(`[Chunk Merge] Merged adjacent duplicate (chunks ${existing.chunkIndex}-${chunkIndex}): ${itemKey.substring(0, 50)}...`);
+        break;
+      }
+    }
+
+    if (!merged) {
+      // No adjacent chunk found - add as new item (separate line item in document)
+      existingGroup.push({
+        item,
+        chunkIndex,
+        pageRange
+      });
+    }
+  }
+
+  // Flatten the groups into final list
+  let allLineItems = [];
+  for (const group of itemsByKey.values()) {
+    for (const entry of group) {
+      allLineItems.push(entry.item);
+    }
+  }
+  console.log(`[Chunk Merge] Total: ${allLineItems.length} unique items (${duplicateCount} adjacent duplicates merged)`);
 
   // Sort by line number
   allLineItems.sort((a, b) => {
@@ -255,6 +299,18 @@ function mergeChunkResults(chunkResults, chunks) {
     const lineB = parseInt(b.line_number) || 0;
     return lineA - lineB;
   });
+
+  // Apply quantity validation to fix length-like quantities
+  // This catches cases where the AI extracted total_length_m as quantity
+  const quantityValidation = validateAndFixQuantities(allLineItems);
+  allLineItems = quantityValidation.items;
+
+  if (quantityValidation.fixedCount > 0) {
+    console.log(`[Chunk Merge] Fixed ${quantityValidation.fixedCount} quantity values (length → pieces)`);
+  }
+  if (quantityValidation.warnings.length > 0) {
+    console.log(`[Chunk Merge] ${quantityValidation.warnings.length} items have suspicious quantities`);
+  }
 
   // Aggregate confidence scores
   const confidenceScores = chunkResults
@@ -288,7 +344,8 @@ function mergeChunkResults(chunkResults, chunks) {
       enabled: true,
       totalChunks: chunkResults.length,
       itemsPerChunk: chunkResults.map(r => r.line_items?.length || 0),
-      deduplicatedItems: seenItemKeys.size - allLineItems.length,
+      deduplicatedItems: duplicateCount,
+      uniqueItems: allLineItems.length,
       chunkRanges: chunks.map(c => c.pageRange),
       failedChunks: failedChunks.length,
       failedChunkDetails: failedChunks
@@ -302,25 +359,191 @@ function mergeChunkResults(chunkResults, chunks) {
 }
 
 /**
+ * Extract normalized dimensions from an item for deduplication
+ *
+ * @param {Object} item - Line item
+ * @returns {string} Normalized dimension string (e.g., "2338x40")
+ */
+function extractNormalizedDimension(item) {
+  // Check size1 field first (preferred for tubulars)
+  if (item.size1) {
+    const dimMatch = String(item.size1).match(/(\d+\.?\d*)\s*[xX×\*]\s*(\d+\.?\d*)/);
+    if (dimMatch) {
+      const od = parseFloat(dimMatch[1]);
+      const thickness = parseFloat(dimMatch[2]);
+      return `${od}x${thickness}`;
+    }
+  }
+
+  // Then check description
+  if (item.description) {
+    const dimMatch = String(item.description).match(/(\d+\.?\d*)\s*[xX×\*]\s*(\d+\.?\d*)/);
+    if (dimMatch) {
+      const od = parseFloat(dimMatch[1]);
+      const thickness = parseFloat(dimMatch[2]);
+      return `${od}x${thickness}`;
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extract TYPE number (I, II, III, IV, V) from item description/notes
+ * Must match longer patterns first (IV before I, III before II)
+ *
+ * @param {Object} item - Line item
+ * @returns {string|null} TYPE number or null
+ */
+function extractTypeNumber(item) {
+  const sources = [item.description, item.notes].filter(Boolean).join(' ').toUpperCase();
+  const typeMatch = sources.match(/TYPE\s*(IV|III|II|I|V)/);
+  return typeMatch ? typeMatch[1] : null;
+}
+
+/**
  * Create a unique key for item deduplication
+ * Uses line_number + dimensions + item type + TYPE number as primary key
+ *
+ * CRITICAL: line_number MUST be included to distinguish separate line items
+ * that have the same dimensions (e.g., multiple TUBULAR 1371.6X50.8 TYPE II entries)
+ *
+ * Items from overlapping chunks will have the SAME line_number if they're duplicates.
+ * Different line items will have DIFFERENT line_numbers even if dimensions match.
  *
  * @param {Object} item - Line item object
  * @returns {string} Unique key for the item
  */
 function createItemKey(item) {
-  const parts = [
-    item.line_number || '',
-    item.description || '',
-    item.quantity || '',
-    item.unit || '',
-    item.spec || '',
-    item.size1 || '',
-    item.size2 || ''
-  ];
+  const dimension = extractNormalizedDimension(item);
+  const desc = String(item.description || '').toLowerCase().trim();
+  const lineNum = item.line_number || item.item_number || '';
 
-  return parts
-    .map(p => String(p).trim().toLowerCase())
-    .join('|');
+  // Extract item type from description (TUBULAR, BEAM, PLATE, etc.)
+  let itemType = 'unknown';
+  if (/tubular|pipe|casing|tubing/i.test(desc)) {
+    itemType = 'tubular';
+  } else if (/beam|w\d+x\d+/i.test(desc)) {
+    itemType = 'beam';
+  } else if (/plate|sheet|pl\d+/i.test(desc)) {
+    itemType = 'plate';
+  } else if (/cone|reducer/i.test(desc)) {
+    itemType = 'cone';
+  } else if (/angle|channel/i.test(desc)) {
+    itemType = 'structural';
+  }
+
+  // Extract TYPE number (I, II, III, IV) for material classification
+  const typeNum = extractTypeNumber(item) || '';
+
+  // Create key: lineNum + type + dimension + typeNum
+  // lineNum is CRITICAL to distinguish separate line items with same dimensions
+  if (dimension) {
+    return `${lineNum}|${itemType}|${dimension}|${typeNum}`;
+  }
+
+  // Fallback: use description hash for non-dimensional items
+  const descNorm = desc.replace(/\s+/g, ' ').substring(0, 50);
+  return `${lineNum}|${itemType}|${descNorm}|${typeNum}`;
+}
+
+/**
+ * Check if a quantity value looks like a length measurement (meters) vs piece count
+ *
+ * @param {number} qty - Quantity value
+ * @returns {boolean} True if qty looks like length in meters
+ */
+function quantityLooksLikeLength(qty) {
+  if (!qty || qty <= 0) return false;
+
+  // Heuristics:
+  // 1. Large decimal value (e.g., 428.91, 1088.82) - typical length measurements
+  // 2. Value > 100 with significant decimal places
+  // 3. Very large integers (> 500) - unlikely piece counts for structural items
+
+  const hasDecimals = qty !== Math.floor(qty) && (qty % 1) >= 0.01;
+  const isLargeWithDecimals = qty > 50 && hasDecimals;
+  const isVeryLarge = qty > 500;
+
+  return isLargeWithDecimals || isVeryLarge;
+}
+
+/**
+ * Merge two duplicate items, preferring more complete data
+ *
+ * CRITICAL: For quantity, prefer values that look like piece counts (small integers)
+ * over values that look like length measurements (large decimals).
+ * This fixes the common AI error of extracting total_length_m as quantity.
+ *
+ * @param {Object} existing - Existing item
+ * @param {Object} newItem - New item to merge
+ * @returns {Object} Merged item
+ */
+function mergeItems(existing, newItem) {
+  const merged = { ...existing };
+
+  // Prefer non-empty values
+  for (const key of Object.keys(newItem)) {
+    if (key.startsWith('_')) continue; // Skip internal fields
+
+    const existingVal = existing[key];
+    const newVal = newItem[key];
+
+    // Keep existing if new is empty
+    if (!newVal || newVal === '' || newVal === '0') continue;
+
+    // If existing is empty, use new
+    if (!existingVal || existingVal === '' || existingVal === '0') {
+      merged[key] = newVal;
+      continue;
+    }
+
+    // For notes, combine them (but avoid duplicates)
+    if (key === 'notes' && existingVal !== newVal) {
+      // Only combine if notes are meaningfully different
+      if (!existingVal.includes(newVal.substring(0, 20))) {
+        merged[key] = `${existingVal}; ${newVal}`;
+      }
+    }
+
+    // For quantity: prefer the value that looks like PIECE COUNT, not length
+    // Pieces are typically small integers (1-500), lengths are large decimals (100-5000)
+    if (key === 'quantity') {
+      const existNum = parseFloat(existingVal) || 0;
+      const newNum = parseFloat(newVal) || 0;
+
+      const existLooksLikeLength = quantityLooksLikeLength(existNum);
+      const newLooksLikeLength = quantityLooksLikeLength(newNum);
+
+      if (existLooksLikeLength && !newLooksLikeLength) {
+        // Existing looks like length, new looks like pieces - use new
+        merged[key] = newVal;
+        merged.total_length_m = merged.total_length_m || existNum; // Save length
+        console.log(`[Merge] Qty fix: ${existNum} → ${newNum} (was length-like)`);
+      } else if (!existLooksLikeLength && newLooksLikeLength) {
+        // Existing looks like pieces, new looks like length - keep existing
+        merged.total_length_m = merged.total_length_m || newNum; // Save length
+        console.log(`[Merge] Qty preserved: ${existNum} (new ${newNum} was length-like)`);
+      } else {
+        // Both look similar - prefer smaller (more likely to be pieces)
+        if (newNum < existNum && newNum > 0) {
+          merged[key] = newVal;
+          console.log(`[Merge] Qty: preferring smaller ${newNum} over ${existNum}`);
+        }
+      }
+    }
+
+    // For total_length_m: prefer larger (actual total length)
+    if (key === 'total_length_m') {
+      const existNum = parseFloat(existingVal) || 0;
+      const newNum = parseFloat(newVal) || 0;
+      if (newNum > existNum) {
+        merged[key] = newVal;
+      }
+    }
+  }
+
+  return merged;
 }
 
 /**

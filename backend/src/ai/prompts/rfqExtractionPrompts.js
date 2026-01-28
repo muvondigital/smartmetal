@@ -93,11 +93,23 @@ CRITICAL RULES:
 - Extract items like a human would: if it's a real item in the document, extract it (cables, electrical, instruments, pipes, flanges - extract everything)
 - SKIP ONLY: Administrative tables (VDRL, revision history, approval matrices), header/footer rows, empty rows, summary rows
 - Let NSC decide later what to quote - your job is to extract everything that's in the document
-- Quantity and unit must be exact; use uppercase units (M, EA, PCS, KG, SET)
 - If a field is missing or unclear, set it to null (do NOT guess)
 - OD/TK only when the document clearly provides them
 - Do NOT include pricing, origin, leadtime, or supplier fields (NSC adds these during quotation)
-- Handle format variations: "DN" = "NPS", "Pipa" = "Pipe", Indonesian/English variations`,
+- Handle format variations: "DN" = "NPS", "Pipa" = "Pipe", Indonesian/English variations
+
+CRITICAL QUANTITY vs LENGTH RULES (READ CAREFULLY):
+- "quantity" = NUMBER OF PIECES (integer count of items, e.g., 36 beams, 18 pipes)
+  - Look for columns named: "Round Qty", "Qty", "Quantity", "PCS", "Nett Qty", "Pieces"
+  - This is typically a small integer (1-500)
+- For MTO documents, "Total As Drawing", "Total Length", "Req Length" columns contain LENGTH in METERS - NOT quantity!
+  - These are typically decimal numbers (e.g., 428.91 m)
+- DO NOT confuse total length (meters) with quantity (pieces)!
+- If a table has both "Round Qty" (or similar) and "Total Length" columns:
+  - Extract "Round Qty" value as quantity (pieces)
+  - Do NOT use "Total Length" as quantity
+- unit should be EA, PCS, or SET for piece counts - NOT "M" (meters) when counting pieces
+- If you see decimal values like 428.91 with unit "m", that's LENGTH not QUANTITY - look for a separate piece count column`,
     user: (extractedData) => `Please extract RFQ data from the following document:
 
 EXTRACTED TEXT:

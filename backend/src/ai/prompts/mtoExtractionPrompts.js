@@ -29,12 +29,26 @@ Output format:
       "description": "Full spec (preserve exact format)",
       "material_spec": "ASTM A790|EN10210 S355 K2H|API 5L GR.B or null",
       "quantity": number or null,
-      "unit": "M|EA|PC|KG|MT",
+      "unit": "EA|PC|PCS",
+      "total_length_m": number or null,
       "remarks": "TYPE I|For Piles|Shipment 1 or null"
     }
   ],
   "confidence": 0.0-1.0
 }
+
+CRITICAL QUANTITY RULES (READ CAREFULLY):
+- "quantity" = NUMBER OF PIECES (integer count of items, e.g., 36 beams, 18 pipes)
+  - Look for columns named: "Round Qty", "Qty", "Quantity", "PCS", "Nett Qty"
+  - This is typically a small integer (1-500)
+- "total_length_m" = TOTAL LENGTH IN METERS (can be decimal, e.g., 428.91 m)
+  - Look for columns named: "Total As Drawing", "Overall Total", "Total Length", "Req Length"
+  - This is typically a larger decimal number
+- DO NOT confuse length (meters) with quantity (pieces)!
+- If a table has both "Round Qty" and "Total As Drawing Details" columns:
+  - Extract "Round Qty" value as quantity (pieces)
+  - Extract "Total As Drawing Details" value as total_length_m (meters)
+- unit must be EA, PC, or PCS (pieces) - NOT "M" for quantity
 
 RULES:
 - Extract ALL items from tables (no limit)
@@ -44,7 +58,6 @@ RULES:
 - Preserve material formats exactly: W36X194, 30000x25, PL60, 457 x 39.61 x 11800
 - Separate item_type (PIPE, BEAM, PLATE) from description
 - Extract size separately if present
-- UNIT must be uppercase: M, EA, PC, KG, MT
 - Combine section/portion/shipment info into remarks field
 - Set null if field not found - NEVER guess`,
     user: (extractedData) => `Extract items from this document. Return ONLY JSON:

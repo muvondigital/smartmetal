@@ -6,6 +6,7 @@
  */
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { repairJson, extractPartialItems, wrapItemsInStructure } = require('../../utils/jsonRepair');
 
 let genAI = null;
 let modelName = null;
@@ -201,14 +202,17 @@ async function callGPT4(messages, options = {}) {
         systemInstruction: systemInstructions || undefined,
       });
 
+      // Deterministic mode for consistent extraction results
+      const isDeterministic = process.env.DETERMINISTIC_EXTRACTION === 'true';
+
       // Generate content
       const result = await model.generateContent({
         contents: contents,
         generationConfig: {
-          temperature,
+          temperature: isDeterministic ? 0 : temperature,
           maxOutputTokens: maxTokens,
-          topP: 0.95,
-          topK: 40,
+          topP: isDeterministic ? 0.1 : 0.95,
+          topK: isDeterministic ? 1 : 40,
         },
       });
 
@@ -281,15 +285,18 @@ async function callGPT4JSON(messages, options = {}) {
           parts: [{ text: m.content }]
         }));
 
+      // Deterministic mode for consistent extraction results
+      const isDeterministic = process.env.DETERMINISTIC_EXTRACTION === 'true';
+
       // Get generative model with system instructions
       const model = client.getGenerativeModel({
         model: modelName,
         systemInstruction: systemInstructions || undefined,
         generationConfig: {
-          temperature,
+          temperature: isDeterministic ? 0 : temperature,
           maxOutputTokens: maxTokens,
-          topP: 0.95,
-          topK: 40,
+          topP: isDeterministic ? 0.1 : 0.95,
+          topK: isDeterministic ? 1 : 40,
           responseMimeType: 'application/json',
         },
       });
@@ -335,6 +342,33 @@ async function callGPT4JSON(messages, options = {}) {
           }
         } catch (repairError) {
           console.error('❌ Aggressive repair also failed:', repairError.message);
+        }
+
+        // Try comprehensive JSON repair utility as final fallback
+        console.warn('⚠️  Attempting comprehensive JSON repair utility...');
+        try {
+          const comprehensiveResult = repairJson(text, { verbose: true });
+          if (comprehensiveResult.success) {
+            console.log(`✅ Comprehensive repair successful - recovered ${comprehensiveResult.itemsRecovered} items using ${comprehensiveResult.strategy || 'unknown'} strategy`);
+            const repaired = comprehensiveResult.data;
+            repaired._json_repaired = true;
+            repaired._truncated = true;
+            repaired._repair_note = `Comprehensive repair recovered ${comprehensiveResult.itemsRecovered} items`;
+            return repaired;
+          }
+
+          // Final fallback: extract partial items
+          const partialItems = extractPartialItems(text);
+          if (partialItems.length > 0) {
+            console.log(`✅ Partial item extraction successful - salvaged ${partialItems.length} items`);
+            const wrapped = wrapItemsInStructure(partialItems, {});
+            wrapped._json_repaired = true;
+            wrapped._truncated = true;
+            wrapped._repair_note = `Partial extraction salvaged ${partialItems.length} items from truncated response`;
+            return wrapped;
+          }
+        } catch (comprehensiveError) {
+          console.error('❌ Comprehensive repair also failed:', comprehensiveError.message);
         }
 
         // JSON parsing errors are NOT transient - fail fast (no retries)
