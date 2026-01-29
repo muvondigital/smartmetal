@@ -11,6 +11,9 @@ const { findVendorRule, computeLayoutSignature } = require('../extraction/vendor
 const ExcelJS = require('exceljs');
 const { Readable } = require('stream');
 
+// Intelligent Extraction (LLM-native document understanding)
+const INTELLIGENT_EXTRACTION_ENABLED = process.env.INTELLIGENT_EXTRACTION === 'true';
+
 /**
  * Google Cloud Document AI Service
  * Replaces Azure Document Intelligence with Document AI
@@ -1030,6 +1033,65 @@ async function parseRFQDocument(documentBuffer, fileType = 'pdf', options = {}) 
       if (cachedResult) {
         console.log('🚀 Using cached extraction result (skipping AI processing)');
         return cachedResult;
+      }
+    }
+
+    // ============================================
+    // INTELLIGENT EXTRACTION (LLM-Native Document Understanding)
+    // When enabled, uses Gemini to UNDERSTAND the document structure
+    // rather than relying on hardcoded patterns
+    // ============================================
+    if (INTELLIGENT_EXTRACTION_ENABLED && options.useIntelligentExtraction !== false) {
+      try {
+        console.log(`
+============================================
+🧠 INTELLIGENT EXTRACTION MODE
+============================================
+Using LLM-native document understanding...`);
+
+        const { intelligentExtract, isIntelligentExtractionAvailable } = require('../ai/intelligentExtractionService');
+
+        const availability = isIntelligentExtractionAvailable();
+        if (!availability.available) {
+          console.warn(`⚠️  Intelligent extraction not available: ${availability.reason}`);
+          console.log('   Falling back to standard extraction...');
+        } else {
+          // First, get basic text/table data from Document AI
+          let extractedData = { tables: [], text: '', confidence: 0 };
+
+          if (fileType === 'pdf' || fileType === 'docx') {
+            try {
+              const docAiResult = await extractTablesFromPDF(documentBuffer);
+              extractedData.tables = parseTableToStructured(docAiResult.tables);
+              extractedData.text = docAiResult.text || '';
+              extractedData.pageCount = docAiResult.pageCount || 1;
+              console.log(`📄 Document AI pre-extraction: ${extractedData.tables.length} tables, ${extractedData.text.length} chars`);
+            } catch (docAiError) {
+              console.warn('⚠️  Document AI pre-extraction failed:', docAiError.message);
+            }
+          }
+
+          // Run intelligent extraction
+          const intelligentResult = await intelligentExtract(extractedData, {
+            pdfBuffer: fileType === 'pdf' ? documentBuffer : null
+          });
+
+          if (intelligentResult && intelligentResult.items && intelligentResult.items.length > 0) {
+            console.log(`✅ Intelligent extraction successful: ${intelligentResult.items.length} items`);
+            console.log(`   Document type: ${intelligentResult.document_type}`);
+            console.log(`   Confidence: ${intelligentResult.confidence}`);
+            console.log(`============================================\n`);
+
+            // Cache and return the result
+            await cacheExtraction(documentBuffer, intelligentResult);
+            return intelligentResult;
+          } else {
+            console.warn('⚠️  Intelligent extraction returned no items, falling back...');
+          }
+        }
+      } catch (intelligentError) {
+        console.error('❌ Intelligent extraction failed:', intelligentError.message);
+        console.log('   Falling back to standard extraction...');
       }
     }
 

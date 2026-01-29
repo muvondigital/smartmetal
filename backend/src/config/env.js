@@ -113,6 +113,14 @@ const envSchema = Joi.object({
   ENABLE_COMPLIANCE_CENTER: Joi.string().valid('true', 'false').default('false'),
   ENABLE_LANDED_COST_V2: Joi.string().valid('true', 'false').default('false'),
   ENABLE_AI_REGULATORY_ASSISTANT: Joi.string().valid('true', 'false').default('false'),
+
+  // Intelligent Extraction Feature Flags
+  // When enabled, uses LLM-native document understanding instead of pattern matching
+  INTELLIGENT_EXTRACTION: Joi.string().valid('true', 'false').default('true'),
+  INTELLIGENT_EXTRACTION_MULTIMODAL: Joi.string().valid('true', 'false').default('false'), // Use PDF images
+  INTELLIGENT_EXTRACTION_TWO_PHASE: Joi.string().valid('true', 'false').default('true'), // Analyze structure first
+  INTELLIGENT_EXTRACTION_VALIDATION: Joi.string().valid('true', 'false').default('true'), // Validate extraction
+  DETERMINISTIC_EXTRACTION: Joi.string().valid('true', 'false').default('false'), // Use temperature=0
 })
   .unknown() // Allow additional env vars not in schema
   .required(); // All required fields must be present
@@ -257,6 +265,10 @@ function buildConfig() {
       complianceCenter: value.ENABLE_COMPLIANCE_CENTER === 'true',
       landedCostV2: value.ENABLE_LANDED_COST_V2 === 'true',
       aiRegulatoryAssistant: value.ENABLE_AI_REGULATORY_ASSISTANT === 'true',
+      intelligentExtraction: value.INTELLIGENT_EXTRACTION === 'true',
+      intelligentExtractionMultimodal: value.INTELLIGENT_EXTRACTION_MULTIMODAL === 'true',
+      intelligentExtractionTwoPhase: value.INTELLIGENT_EXTRACTION_TWO_PHASE !== 'false',
+      intelligentExtractionValidation: value.INTELLIGENT_EXTRACTION_VALIDATION !== 'false',
     },
   };
 
